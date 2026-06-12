@@ -1,0 +1,84 @@
+[project]
+name = "simloom"
+version = "0.0.1.dev0"
+description = "Deterministic simulation testing for asyncio: seeded schedules, fault injection, perfect replay."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Mandip Adhikari" }]
+keywords = [
+    "asyncio",
+    "deterministic",
+    "simulation",
+    "testing",
+    "fault-injection",
+    "concurrency",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Framework :: AsyncIO",
+    "Framework :: Pytest",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "hypothesis>=6.115",
+    "mypy>=1.14",
+    "ruff>=0.9",
+]
+spikes = [
+    "aiohttp>=3.11",
+    "httpx>=0.28",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/simloom"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 99
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",     # pycodestyle
+    "F",          # pyflakes
+    "I",          # isort
+    "B",          # bugbear
+    "UP",         # pyupgrade
+    "SIM",        # simplify
+    "RUF",        # ruff-specific
+    "ASYNC",      # async pitfalls
+    "PT",         # pytest style
+    "RET",        # return style
+    "C4",         # comprehensions
+]
+ignore = [
+    "SIM117",  # nested with is often clearer
+]
+
+[tool.ruff.lint.per-file-ignores]
+"spikes/*" = ["ASYNC"]  # spikes intentionally poke at loop internals

@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # Cross-process replay requires pinned hashing (docs/plan.md, problem #1).
+  # CI pins it from day 1 so any hash-order dependence surfaces immediately.
+  PYTHONHASHSEED: "0"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --all-extras ruff check .
+      - run: uv run --all-extras ruff format --check .
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --all-extras mypy src
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv run --all-extras pytest
+
+  # Phase A adds the determinism-torture job here: re-run the corpus across many
+  # seeds and assert replay hash-equality (docs/plan.md, validation strategy).
