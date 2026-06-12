@@ -30,3 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `RunResult.coverage`. Gate: the toy Raft torture suite
   (`tests/test_raft_demo.py`) catches a planted double-vote bug via exploration and
   replays it exactly; the correct implementation survives.
+- **Phase D explorer + shrinker**: `simloom.explore` (random walk or PCT scheduling,
+  serial or multiprocess, failure corpus + coverage union), `simloom.shrink`
+  (deviations-first greedy minimization with re-recorded candidates and zero-refill
+  fallback; human-readable `describe()`), `PCT`/`RandomWalk` strategies with
+  replay-matched recording. Gate: the benchmark bug zoo measures find rates — PCT
+  finds the starvation-class bug a random walk never does (0 vs 151 of 400 seeds),
+  and random dominates shallow races; both results asserted in CI.

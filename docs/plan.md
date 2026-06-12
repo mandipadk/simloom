@@ -130,6 +130,31 @@ Random walk → parallel runner → shrinking → PCT.
 **Gate:** shrunk repros human-readable; PCT beats random walk on the benchmark bug zoo
 (measured — also launch content).
 
+Progress notes:
+- 2026-06-12: **Phase D core shipped; gate met.** Pluggable schedulers (`_sched.py`):
+  RandomWalk (default) and PCT (priorities + d-1 change points, all tape-drawn, so PCT
+  universes replay/shrink like any other; RunResult records the strategy and replay
+  auto-matches it). Explorer (`simloom.explore`): serial + ProcessPool fan-out, failure
+  list, first-failure artifact re-run locally, corpus coverage union. Shrinker
+  (`simloom.shrink`): chunked deletion, block zeroing, value descent; every accepted
+  candidate re-recorded; budgeted; `describe()` prints the FIFO-deviation story.
+- Two findings that shaped the design: (1) the minimization order is
+  **(deviations, length, values)** — deviations-first, a real divergence from
+  Hypothesis shortlex, because a schedule's length is intrinsic to the program;
+  (2) the shrinker's fallback refill must be **zeros** (canonical FIFO completion),
+  not a PRNG — random refill made most improving candidates look worse and stalled
+  shrinking at 18+ deviations; with zero-refill the check_then_set race shrinks
+  25 -> 1 deviations in ~100 candidate runs.
+- Gate measurements (`tests/test_zoo.py`, deterministic, re-verified in CI; N=400
+  local benchmark): random walk vs pct:d=2,k=64 — shallow_race 395 vs 44,
+  check_then_set 173 vs 0, deep_ordering 127 vs 8, **starvation 0 vs 151**. The
+  strategies are complementary, exactly as the PCT paper claims: random dominates
+  shallow races; PCT owns the priority/starvation class random can essentially
+  never hit (a 2^-14 streak). Honest both ways — this is launch content.
+- PCT horizon caveat: k must approximate the run's step count (default 4096 is far
+  too large for small tests and degrades PCT to a fixed priority schedule); the
+  explorer should auto-tune k from a probe run — noted for Phase E polish.
+
 ### Phase E — pytest plugin, docs, launch
 
 `@sim.test`, failure UX, `docs/determinism.md`, examples, OSS-bug reproduction hunt

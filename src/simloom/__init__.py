@@ -18,22 +18,30 @@ from ._errors import (
     UnhandledExceptionError,
 )
 from ._eventlog import EVENT_LOG_FORMAT_VERSION, EventLog
+from ._explore import Exploration, Failure, explore
 from ._loop import SimLoop
 from ._net import SimNetwork, SimServer, SimTransport
 from ._run import RunResult, replay, run
+from ._sched import PCT, RandomWalk
+from ._shrink import ShrinkResult, shrink
 from ._tape import TAPE_FORMAT_VERSION, Draw, MisalignmentPolicy, Tape
 from ._version import __version__
 from ._world import Host, SimDisk, World
 
 __all__ = [
     "EVENT_LOG_FORMAT_VERSION",
+    "PCT",
     "TAPE_FORMAT_VERSION",
     "Draw",
     "EscapedSimulationError",
     "EventLog",
+    "Exploration",
+    "Failure",
     "Host",
     "MisalignmentPolicy",
+    "RandomWalk",
     "RunResult",
+    "ShrinkResult",
     "SimDeadlockError",
     "SimDisk",
     "SimLoop",
@@ -47,8 +55,10 @@ __all__ = [
     "World",
     "__version__",
     "draw",
+    "explore",
     "reached",
     "replay",
     "run",
+    "shrink",
     "sometimes",
 ]

@@ -3,10 +3,17 @@
 This document is the honest boundary of the simulation. It will always state
 exactly what is deterministic, what escapes, and what we detect versus what
 we merely document. Status: **Phase C** — the deterministic loop, tape,
-simulated world, and the fault matrix (partitions, asymmetric blocks, resets,
-crashes with torn writes, latency/loss) exist, plus buggify
-(`simloom.sometimes`/`draw`/`reached`). The explorer and shrinker (Phase D)
-do not yet.
+simulated world, the fault matrix (partitions, asymmetric blocks, resets,
+crashes with torn writes, latency/loss), buggify, and the Phase D explorer
+(random walk + PCT, serial or multiprocess) and tape shrinker exist. The
+pytest plugin (Phase E) does not yet.
+
+Explorer/shrinker notes: PCT scheduling draws its priorities and change
+points from the tape, so PCT universes replay and shrink like any other.
+The multiprocess explorer reports failing seeds from workers and re-runs
+the first one locally, so the returned artifact reproduces in your process
+regardless of PYTHONHASHSEED; pin it anyway for cross-process digest
+comparisons.
 
 ## The guarantee
 

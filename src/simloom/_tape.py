@@ -23,6 +23,17 @@ from typing import Any
 from ._errors import TapeMisalignmentError
 
 TAPE_FORMAT = "simloom-tape"
+
+
+class _ZeroRandom(random.Random):
+    """A fallback that always answers 0: misaligned tails complete along
+    the canonical (FIFO) path instead of a random one. The shrinker's
+    refill of choice."""
+
+    def randrange(self, *args: Any, **kwargs: Any) -> int:
+        return 0
+
+
 TAPE_FORMAT_VERSION = 1
 
 
@@ -118,11 +129,20 @@ class Tape:
         *,
         policy: MisalignmentPolicy = MisalignmentPolicy.STRICT,
         fallback_seed: int = 0,
+        fallback: str = "rng",
     ) -> Tape:
-        """Re-feed a recorded universe to a re-execution of the program."""
+        """Re-feed a recorded universe to a re-execution of the program.
+
+        ``fallback`` selects what fills draws after a FALLBACK divergence:
+        ``"rng"`` (seeded PRNG) or ``"zero"`` (every draw answers 0 — the
+        canonical FIFO completion, which the shrinker wants).
+        """
+        if fallback not in ("rng", "zero"):
+            raise ValueError(f"unknown fallback {fallback!r}")
         draws = recorded.draws if isinstance(recorded, Tape) else tuple(recorded)
+        rng = _ZeroRandom() if fallback == "zero" else random.Random(fallback_seed)
         return cls(
-            _rng=random.Random(fallback_seed),
+            _rng=rng,
             _seed=None,
             _recorded=draws,
             _policy=policy,

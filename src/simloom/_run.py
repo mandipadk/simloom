@@ -23,6 +23,7 @@ from typing import Any, Literal
 from ._errors import TapeMisalignmentError, UnhandledExceptionError
 from ._eventlog import EventLog
 from ._loop import SimLoop
+from ._sched import SchedulerFactory, resolve_scheduler
 from ._tape import Draw, MisalignmentPolicy, Tape
 from ._version import __version__
 from ._world import World
@@ -40,6 +41,8 @@ class RunResult:
     log: EventLog = field(repr=False)
     #: Buggify/reached counters (label -> hits); see simloom.sometimes/reached.
     coverage: dict[str, int] = field(default_factory=dict)
+    #: Which scheduling strategy produced this universe (replay must match).
+    scheduler: str = "random"
 
     @property
     def digest(self) -> str:
@@ -60,6 +63,7 @@ def run(
     gc_interval: int = 1009,
     on_unhandled: Literal["raise", "record"] = "raise",
     watchdog: float | None = None,
+    scheduler: str | SchedulerFactory | None = None,
 ) -> RunResult:
     """Run ``main()`` in a fresh simulated universe generated from ``seed``.
 
@@ -80,6 +84,7 @@ def run(
         gc_interval=gc_interval,
         on_unhandled=on_unhandled,
         watchdog=watchdog,
+        scheduler=scheduler,
     )
 
 
@@ -89,23 +94,32 @@ def replay(
     tape: Tape | RunResult | Iterable[Draw],
     policy: MisalignmentPolicy = MisalignmentPolicy.STRICT,
     fallback_seed: int = 0,
+    fallback: str = "rng",
     raise_on_error: bool = True,
     epoch: float = 0.0,
     gc_interval: int = 1009,
     on_unhandled: Literal["raise", "record"] = "raise",
     watchdog: float | None = None,
+    scheduler: str | SchedulerFactory | None = None,
 ) -> RunResult:
-    """Re-execute ``main()`` against a recorded universe."""
+    """Re-execute ``main()`` against a recorded universe.
+
+    When ``tape`` is a RunResult and no scheduler is given, the recording's
+    own strategy is used — a PCT universe replays under PCT.
+    """
     recorded = tape.tape if isinstance(tape, RunResult) else tape
+    if scheduler is None and isinstance(tape, RunResult):
+        scheduler = tape.scheduler
     return _execute(
         main,
-        tape=Tape.replay(recorded, policy=policy, fallback_seed=fallback_seed),
+        tape=Tape.replay(recorded, policy=policy, fallback_seed=fallback_seed, fallback=fallback),
         seed=None,
         raise_on_error=raise_on_error,
         epoch=epoch,
         gc_interval=gc_interval,
         on_unhandled=on_unhandled,
         watchdog=watchdog,
+        scheduler=scheduler,
     )
 
 
@@ -119,6 +133,7 @@ def _execute(
     gc_interval: int,
     on_unhandled: Literal["raise", "record"],
     watchdog: float | None,
+    scheduler: str | SchedulerFactory | None = None,
 ) -> RunResult:
     if asyncio.iscoroutine(main):
         raise TypeError(
@@ -133,7 +148,8 @@ def _execute(
             "simloom.run()/replay() cannot be called while another event loop is running"
         )
 
-    loop = SimLoop(tape, epoch=epoch, gc_interval=gc_interval)
+    factory = resolve_scheduler(scheduler)
+    loop = SimLoop(tape, epoch=epoch, gc_interval=gc_interval, scheduler=factory)
     world = World(loop) if _wants_world(main) else None
     log = loop.log
     log.metadata.update(
@@ -143,6 +159,7 @@ def _execute(
             "implementation": platform.python_implementation(),
             "seed": seed,
             "epoch": epoch,
+            "scheduler": loop._scheduler.descriptor,
             "hash_randomization_pinned": _hash_randomization_pinned(),
         }
     )
@@ -209,6 +226,7 @@ def _execute(
         tape=tape.draws,
         log=log,
         coverage=dict(loop.coverage),
+        scheduler=loop._scheduler.descriptor,
     )
     if raise_on_error and error is not None:
         raise error

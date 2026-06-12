@@ -5,17 +5,19 @@ inside a fully simulated world — virtual clock, simulated network, seeded sche
 explore thousands of execution interleavings with fault injection, and reduce every
 failure to a seed that replays it exactly, forever.
 
-> **Status: pre-alpha, Phase C (core + world + faults).** The seeded loop,
-> choice tape, replay, escape detection, event log, simulated network/DNS,
-> hosts with power-cut crash semantics, honest-fsync disks, and the fault
-> matrix (partitions, asymmetric blocks, resets, torn writes, latency/loss,
-> buggify) exist — and hold a 10,000-seed determinism torture in CI.
+> **Status: pre-alpha, Phase D (core + world + faults + explorer/shrinker).**
+> The seeded loop, choice tape, replay, escape detection, event log, simulated
+> network/DNS, hosts with power-cut crash semantics, honest-fsync disks, the
+> fault matrix (partitions, asymmetric blocks, resets, torn writes,
+> latency/loss, buggify), the explorer (random walk + PCT, multiprocess), and
+> the tape shrinker exist — and hold a 10,000-seed determinism torture in CI.
 > **Unmodified aiohttp and httpx run against each other in-sim with faults
-> injected, byte-for-byte replayable — and a toy Raft torture suite catches a
-> planted election-safety bug from a seed.** No explorer, shrinker, or pytest
-> plugin yet — Phases D–E. The plan is `docs/plan.md`; locked decisions are
-> `DIRECTIVES.md`; the honest boundary of what is and isn't deterministic is
-> `docs/determinism.md`.
+> injected; a toy Raft torture suite catches a planted election-safety bug
+> from a seed; the shrinker reduces a failing schedule to "FIFO except one
+> pick"; and PCT finds a starvation bug a random walk never does (0 vs 151 of
+> 400 seeds).** No pytest plugin yet — Phase E. The plan is `docs/plan.md`;
+> locked decisions are `DIRECTIVES.md`; the honest boundary of what is and
+> isn't deterministic is `docs/determinism.md`.
 
 What works today:
 

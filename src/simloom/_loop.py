@@ -39,6 +39,7 @@ from typing import Any, NoReturn, Protocol, TypeVar, TypeVarTuple, cast
 from ._context import current_host
 from ._errors import EscapedSimulationError, SimDeadlockError
 from ._eventlog import EventLog
+from ._sched import SchedulerFactory, resolve_scheduler
 from ._tape import Tape
 
 _T = TypeVar("_T")
@@ -105,8 +106,10 @@ class SimLoop(asyncio.AbstractEventLoop):
         log: EventLog | None = None,
         epoch: float = 0.0,
         gc_interval: int = 1009,
+        scheduler: str | SchedulerFactory | None = None,
     ) -> None:
         self._tape = tape
+        self._scheduler = resolve_scheduler(scheduler)(self)
         self._log = log if log is not None else EventLog()
         self._now = float(epoch)
         self._ready: list[asyncio.Handle] = []
@@ -305,7 +308,7 @@ class SimLoop(asyncio.AbstractEventLoop):
             return  # everything due was cancelled; re-evaluate
 
         count = len(self._ready)
-        index = self._tape.draw(SCHED_PICK, count) if count > 1 else 0
+        index = self._scheduler.pick(self._ready)
         handle = self._ready.pop(index)
         self._log.emit(
             "step",
@@ -339,7 +342,7 @@ class SimLoop(asyncio.AbstractEventLoop):
                 self._compact_ready()
                 continue
             count = len(self._ready)
-            index = self._tape.draw(SCHED_PICK, count) if count > 1 else 0
+            index = self._scheduler.pick(self._ready)
             handle = self._ready.pop(index)
             self._log.emit(
                 "step",
