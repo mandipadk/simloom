@@ -50,7 +50,7 @@ below).
   between Python versions. Tapes record bounds, so cross-version divergence
   is *detected* (strict replay fails loudly), not silent.
 
-## The simulated world (Phase B)
+## The simulated world
 
 When the program under test accepts a ``World`` parameter, the network is
 simulated: ``create_connection``, ``create_server``, and ``getaddrinfo``
@@ -103,8 +103,7 @@ honestly:
   listeners stop accepting.
 - Known limitation: plain ``call_soon`` callbacks scheduled by host code
   before the crash (not bound to one of its tasks) may still run — only
-  task wakeups are crash-filtered today. The Phase C fault matrix tightens
-  this.
+  task wakeups are crash-filtered today.
 - ``host.disk`` is an explicit API. Real file I/O (``open()``) bypasses the
   simulation undetectably and is not crash-consistent.
 
@@ -114,8 +113,9 @@ These raise `EscapedSimulationError` at the call site, with the API named:
 
 - file-descriptor readiness: `add_reader`, `add_writer`, …
 - raw sockets: `sock_connect`, `sock_recv`, `sock_sendall`, …
-- network/DNS (until SimWorld lands in Phase B): `create_connection`,
-  `create_server`, `create_datagram_endpoint`, `getaddrinfo`, `start_tls`, …
+- network/DNS when no World is in play (and `create_datagram_endpoint`,
+  `start_tls`, TLS connects always): the simulated network only exists
+  when the program under test accepts a `World`, …
 - pipes and subprocesses: `connect_read_pipe`, `subprocess_exec`, …
 - OS signals: `add_signal_handler`, …
 - cross-thread injection: `call_soon_threadsafe` from a foreign thread.
