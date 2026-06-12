@@ -139,6 +139,13 @@ class SpikeLoop(asyncio.AbstractEventLoop):
         exc = context.get("exception")
         self._loop_exc = exc if isinstance(exc, BaseException) else RuntimeError(str(context))
 
+    def _choose(self, n: int) -> int:
+        """The single nondeterminism hook: pick which of n ready callbacks runs.
+
+        S4 overrides this to route the pick through a recorded choice tape.
+        """
+        return self._rng.randrange(n)
+
     # --- the spike's heart ---
 
     def run_until_complete(self, coro: Coroutine[Any, Any, Any]) -> Any:
@@ -169,7 +176,7 @@ class SpikeLoop(asyncio.AbstractEventLoop):
                 self._ready.append(timer)
 
         # THE CHOICE: the seeded RNG — not arrival order — picks what runs next.
-        index = self._rng.randrange(len(self._ready))
+        index = self._choose(len(self._ready))
         handle = self._ready.pop(index)
         self.events.append(
             {
