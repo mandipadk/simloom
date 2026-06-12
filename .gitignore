@@ -15,5 +15,8 @@ build/
 # simloom artifacts
 .sim/
 
+# internal documents, never tracked
+BRIEF.md
+
 # OS
 .DS_Store

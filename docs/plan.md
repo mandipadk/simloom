@@ -5,7 +5,8 @@ Deterministic simulation testing (DST) for Python's asyncio ecosystem: run an
 network/disk/DNS, seeded scheduler), explore thousands of interleavings with fault
 injection, and reduce every failure to a 100%-reproducible, automatically shrunk seed.
 
-Source of truth for decisions: `DIRECTIVES.md`. Background and full rationale: `BRIEF.md`.
+Source of truth for decisions: `DIRECTIVES.md`. Background and full rationale live in the
+project brief (internal, untracked).
 
 ## Problems (the hard catalog)
 
