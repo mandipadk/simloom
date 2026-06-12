@@ -27,6 +27,7 @@ import asyncio
 import asyncio.events
 import gc
 import heapq
+import inspect
 import sys
 import threading
 import weakref
@@ -764,7 +765,8 @@ class SimLoop(asyncio.AbstractEventLoop):
 
 
 def _check_callback(callback: object, method: str) -> None:
-    if asyncio.iscoroutine(callback) or asyncio.iscoroutinefunction(callback):
+    # inspect's variant, not asyncio's: the latter is deprecated in 3.14.
+    if asyncio.iscoroutine(callback) or inspect.iscoroutinefunction(callback):
         raise TypeError(f"coroutines cannot be used with {method}(): use create_task()")
     if not callable(callback):
         raise TypeError(f"{method}() expected a callable, got {callback!r}")
