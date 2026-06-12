@@ -147,6 +147,8 @@ class SimLoop(asyncio.AbstractEventLoop):
         self._network: Any = None
         self._asyncgens: dict[int, weakref.ref[Any]] = {}
         self._asyncgens_shutdown_called = False
+        #: Buggify/reached counters; surfaced as RunResult.coverage.
+        self.coverage: dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # introspection
@@ -159,6 +161,9 @@ class SimLoop(asyncio.AbstractEventLoop):
     @property
     def log(self) -> EventLog:
         return self._log
+
+    def record_coverage(self, label: str) -> None:
+        self.coverage[label] = self.coverage.get(label, 0) + 1
 
     @property
     def unhandled_exceptions(self) -> list[dict[str, Any]]:
@@ -315,8 +320,12 @@ class SimLoop(asyncio.AbstractEventLoop):
         handle._run()
 
     def _collect_garbage(self) -> None:
-        collected = gc.collect()
-        self._log.emit("gc_collect", t=self._now, collected=collected)
+        # The collected-object count is process-global state (it includes
+        # garbage from earlier runs in the same process), so it must never
+        # reach the log: only the fact that collection happened is part of
+        # this universe.
+        gc.collect()
+        self._log.emit("gc_collect", t=self._now)
 
     def _drain_ready(self, limit: int = 100_000) -> None:
         """Run pending ready callbacks (no clock jumps) until none remain.

@@ -5,15 +5,17 @@ inside a fully simulated world — virtual clock, simulated network, seeded sche
 explore thousands of execution interleavings with fault injection, and reduce every
 failure to a seed that replays it exactly, forever.
 
-> **Status: pre-alpha, Phase B (deterministic core + simulated world).** The
-> seeded loop, choice tape, replay, escape detection, event log, simulated
-> network/DNS, hosts with power-cut crash semantics, and honest-fsync disks
-> exist — and hold a 10,000-seed determinism torture in CI. **Unmodified
-> aiohttp and httpx already run against each other in-sim, with latency and
-> loss injected, byte-for-byte replayable.** No fault matrix, explorer,
-> shrinker, or pytest plugin yet — Phases C–E. The plan is `docs/plan.md`;
-> locked decisions are `DIRECTIVES.md`; the honest boundary of what is and
-> isn't deterministic is `docs/determinism.md`.
+> **Status: pre-alpha, Phase C (core + world + faults).** The seeded loop,
+> choice tape, replay, escape detection, event log, simulated network/DNS,
+> hosts with power-cut crash semantics, honest-fsync disks, and the fault
+> matrix (partitions, asymmetric blocks, resets, torn writes, latency/loss,
+> buggify) exist — and hold a 10,000-seed determinism torture in CI.
+> **Unmodified aiohttp and httpx run against each other in-sim with faults
+> injected, byte-for-byte replayable — and a toy Raft torture suite catches a
+> planted election-safety bug from a seed.** No explorer, shrinker, or pytest
+> plugin yet — Phases D–E. The plan is `docs/plan.md`; locked decisions are
+> `DIRECTIVES.md`; the honest boundary of what is and isn't deterministic is
+> `docs/determinism.md`.
 
 What works today:
 

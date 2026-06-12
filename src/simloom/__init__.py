@@ -9,6 +9,7 @@ detection, and the versioned event log. The simulated world (hosts, network,
 faults) and the explorer arrive in later phases — see docs/plan.md.
 """
 
+from ._buggify import draw, reached, sometimes
 from ._errors import (
     EscapedSimulationError,
     SimDeadlockError,
@@ -45,6 +46,9 @@ __all__ = [
     "UnhandledExceptionError",
     "World",
     "__version__",
+    "draw",
+    "reached",
     "replay",
     "run",
+    "sometimes",
 ]

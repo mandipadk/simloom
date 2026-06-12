@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any
 
 from ._context import current_host
 from ._net import SimNetwork
+from ._tape import Tape
 
 if TYPE_CHECKING:
     from ._loop import SimLoop
@@ -96,7 +97,25 @@ class SimDisk:
         return sorted(visible)
 
     def drop_unsynced(self) -> None:
-        """Power cut: the buffer cache is gone."""
+        """Power cut, worst case: the entire buffer cache is gone."""
+        self._buffered.clear()
+
+    def _power_cut(self, tape: Tape) -> None:
+        """Power cut with honest physics: each buffered write independently
+        turns out lost, torn (a prefix reached the platter), or flushed —
+        the storage bug class FoundationDB's simulator is famous for."""
+        for path in sorted(self._buffered):
+            data = self._buffered[path]
+            if data is None:
+                if tape.draw("disk.fate", 2) == 1:
+                    self._synced.pop(path, None)  # the delete had hit disk
+            else:
+                fate = tape.draw("disk.fate", 3)  # 0 lost, 1 torn, 2 flushed
+                if fate == 1 and len(data) > 1:
+                    cut = 1 + tape.draw("disk.tear", len(data) - 1)
+                    self._synced[path] = data[:cut]
+                elif fate == 2:
+                    self._synced[path] = data
         self._buffered.clear()
 
 
@@ -194,7 +213,7 @@ class Host:
         for server in list(net._listeners.values()):
             if server.owner is self:
                 server.close()
-        self.disk.drop_unsynced()
+        self.disk._power_cut(self._loop.tape)
 
     def restart(self) -> None:
         """Power back on: re-run every entry factory against the surviving

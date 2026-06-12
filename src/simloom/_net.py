@@ -20,6 +20,7 @@ Design rules carried from the Phase 0 spikes:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import socket
 from collections import deque
 from collections.abc import Callable
@@ -39,6 +40,13 @@ NET_LOSS = "net.loss"
 
 #: Quantization of the latency range: draws are integers in [0, 64).
 _DELAY_STEPS = 64
+
+#: The root world (code not running on any Host) in partition bookkeeping.
+WORLD = "<world>"
+
+
+def _owner_name(owner: Any) -> str:
+    return WORLD if owner is None else str(owner.name)
 
 
 class FakeSocket:
@@ -90,6 +98,7 @@ class SimTransport(asyncio.Transport):
         self._peer: SimTransport | None = None
         self._inbox: deque[object] = deque()
         self._pending: deque[object] = deque()
+        self._held: deque[object] = deque()  # chunks trapped behind a partition
         self._last_arrival = 0.0
         self._paused = False
         self._pump_scheduled = False
@@ -108,6 +117,12 @@ class SimTransport(asyncio.Transport):
     def _start(self, protocol: asyncio.BaseProtocol, peer: SimTransport) -> None:
         self._protocol = protocol
         self._peer = peer
+        # Protocol callbacks run in the owner host's context, so tasks they
+        # spawn (e.g. asyncio.start_server handler tasks) belong to the host
+        # that serves the connection — and die with it on crash.
+        ctx = contextvars.copy_context()
+        ctx.run(current_host.set, self.owner)
+        self._host_ctx = ctx
 
     # --- write side ---
 
@@ -133,11 +148,32 @@ class SimTransport(asyncio.Transport):
         per-direction FIFO order (arrival times never decrease)."""
         peer = self._peer
         assert peer is not None
+        if self._held or self._network._is_blocked(
+            _owner_name(self.owner), _owner_name(peer.owner)
+        ):
+            # Behind a partition: hold, in order. Real TCP retransmits until
+            # the link heals; dropping mid-stream bytes would corrupt.
+            self._held.append(item)
+            return
         arrival = self._loop.time() + self._network._draw_delay()
         arrival = max(arrival, peer._last_arrival)
         peer._last_arrival = arrival
         peer._pending.append(item)
-        self._loop.call_at(arrival, peer._arrive)
+        self._loop.call_at(arrival, peer._arrive, context=peer._host_ctx)
+
+    def _flush_held(self) -> None:
+        peer = self._peer
+        if peer is None or self._closed:
+            return
+        while self._held and not self._network._is_blocked(
+            _owner_name(self.owner), _owner_name(peer.owner)
+        ):
+            item = self._held.popleft()
+            arrival = self._loop.time() + self._network._draw_delay()
+            arrival = max(arrival, peer._last_arrival)
+            peer._last_arrival = arrival
+            peer._pending.append(item)
+            self._loop.call_at(arrival, peer._arrive, context=peer._host_ctx)
 
     # --- read side ---
 
@@ -151,7 +187,7 @@ class SimTransport(asyncio.Transport):
     def _schedule_pump(self) -> None:
         if not self._pump_scheduled and not self._closed:
             self._pump_scheduled = True
-            self._loop.call_soon(self._pump)
+            self._loop.call_soon(self._pump, context=self._host_ctx)
 
     def _pump(self) -> None:
         self._pump_scheduled = False
@@ -194,7 +230,7 @@ class SimTransport(asyncio.Transport):
             return
         if self._peer is not None and not self._peer._closing:
             self._send(_EOF)
-        self._loop.call_soon(self._finalize)
+        self._loop.call_soon(self._finalize, context=self._host_ctx)
 
     def abort(self) -> None:
         self.close()
@@ -215,7 +251,7 @@ class SimTransport(asyncio.Transport):
         self._network._forget(self)
         peer = self._peer
         if peer is not None and not peer._closed:
-            self._loop.call_soon(peer._reset_by_peer)
+            self._loop.call_soon(peer._reset_by_peer, context=peer._host_ctx)
 
     def _reset_by_peer(self) -> None:
         if self._closed:
@@ -337,6 +373,8 @@ class SimNetwork:
         self.bytes_sent = 0
         self.chunks_sent = 0
         self.chunks_delayed_by_loss = 0
+        self._blocked: set[tuple[str, str]] = set()  # directional (src, dst)
+        self._heal_waiters: asyncio.Event | None = None
 
     # --- configuration ---
 
@@ -352,6 +390,61 @@ class SimNetwork:
         if not 0 <= percent <= 100:
             raise ValueError("loss percent must be in [0, 100]")
         self._loss_percent = percent
+
+    # --- the fault matrix (all observable effects, never corruption) ---
+
+    def _is_blocked(self, src: str, dst: str) -> bool:
+        return (src, dst) in self._blocked
+
+    def block(self, src: Any, dst: Any) -> None:
+        """Block traffic one way: src -> dst (asymmetric partitions)."""
+        edge = (_owner_name(src), _owner_name(dst))
+        self._blocked.add(edge)
+        self._loop.log.emit("net_block", t=self._loop.time(), src=edge[0], dst=edge[1])
+
+    def unblock(self, src: Any, dst: Any) -> None:
+        self._blocked.discard((_owner_name(src), _owner_name(dst)))
+        self._release()
+
+    def partition(self, group_a: list[Any], group_b: list[Any]) -> None:
+        """Full bidirectional partition between two groups of hosts."""
+        names_a = [_owner_name(h) for h in group_a]
+        names_b = [_owner_name(h) for h in group_b]
+        for a in names_a:
+            for b in names_b:
+                self._blocked.add((a, b))
+                self._blocked.add((b, a))
+        self._loop.log.emit("net_partition", t=self._loop.time(), a=names_a, b=names_b)
+
+    def heal(self) -> None:
+        """Remove every block; held traffic is delivered, in order."""
+        self._blocked.clear()
+        self._loop.log.emit("net_heal", t=self._loop.time())
+        self._release()
+
+    def _release(self) -> None:
+        for transport in list(self._live_transports.values()):
+            transport._flush_held()
+        if self._heal_waiters is not None:
+            self._heal_waiters.set()
+            self._heal_waiters = None
+
+    async def _wait_until_unblocked(self, src: str, dst: str) -> None:
+        while self._is_blocked(src, dst) or self._is_blocked(dst, src):
+            if self._heal_waiters is None:
+                self._heal_waiters = asyncio.Event()
+            await self._heal_waiters.wait()
+
+    def reset_connections(self, a: Any, b: Any) -> None:
+        """Inject ConnectionResetError on every live connection between two
+        hosts (either direction)."""
+        pair = {_owner_name(a), _owner_name(b)}
+        self._loop.log.emit("net_reset", t=self._loop.time(), between=sorted(pair))
+        for transport in list(self._live_transports.values()):
+            peer = transport._peer
+            ends = {_owner_name(transport.owner), _owner_name(peer.owner if peer else None)}
+            if ends == pair:
+                self._loop.call_soon(transport._reset_by_peer, context=transport._host_ctx)
 
     # --- tape-driven decisions ---
 
@@ -424,7 +517,13 @@ class SimNetwork:
         if host is None or port is None:
             raise ValueError("simulated create_connection requires explicit host and port")
         ip = self.dns.resolve(host)
+        client_owner = current_host.get()
         server = self._listeners.get((ip, int(port)))
+        if server is not None:
+            # A SYN cannot cross a partition: hang until heal (a caller
+            # timeout, or the deadlock oracle, turns this into a finding).
+            await self._wait_until_unblocked(_owner_name(client_owner), _owner_name(server.owner))
+            server = self._listeners.get((ip, int(port)))
         if server is None or not server.is_serving():
             raise ConnectionRefusedError(111, f"connection refused: {(ip, int(port))}")
 
@@ -434,7 +533,7 @@ class SimNetwork:
 
         client_transport = SimTransport(self, sockname=client_addr, peername=server_addr)
         server_transport = SimTransport(self, sockname=server_addr, peername=client_addr)
-        client_transport.owner = current_host.get()
+        client_transport.owner = client_owner
         server_transport.owner = server.owner
         server_protocol = server.make_protocol()
         client_protocol = protocol_factory()
@@ -443,8 +542,8 @@ class SimNetwork:
         self._remember(client_transport)
         self._remember(server_transport)
         self._loop.log.emit("net_connect", t=self._loop.time(), host=host, port=int(port))
-        server_protocol.connection_made(server_transport)
-        client_protocol.connection_made(client_transport)
+        server_transport._host_ctx.run(server_protocol.connection_made, server_transport)
+        client_transport._host_ctx.run(client_protocol.connection_made, client_transport)
         return client_transport, client_protocol
 
     # --- transport registry (ordered, for deterministic host crashes) ---

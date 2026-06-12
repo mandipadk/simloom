@@ -38,6 +38,8 @@ class RunResult:
     seed: int | None
     tape: tuple[Draw, ...]
     log: EventLog = field(repr=False)
+    #: Buggify/reached counters (label -> hits); see simloom.sometimes/reached.
+    coverage: dict[str, int] = field(default_factory=dict)
 
     @property
     def digest(self) -> str:
@@ -206,6 +208,7 @@ def _execute(
         seed=seed,
         tape=tape.draws,
         log=log,
+        coverage=dict(loop.coverage),
     )
     if raise_on_error and error is not None:
         raise error

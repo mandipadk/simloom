@@ -2,9 +2,11 @@
 
 This document is the honest boundary of the simulation. It will always state
 exactly what is deterministic, what escapes, and what we detect versus what
-we merely document. Status: **Phase B** — the deterministic loop, tape, and
-simulated world (network, hosts with crash/restart, disk) exist; fault
-injection beyond latency/loss, and the explorer, do not yet.
+we merely document. Status: **Phase C** — the deterministic loop, tape,
+simulated world, and the fault matrix (partitions, asymmetric blocks, resets,
+crashes with torn writes, latency/loss) exist, plus buggify
+(`simloom.sometimes`/`draw`/`reached`). The explorer and shrinker (Phase D)
+do not yet.
 
 ## The guarantee
 
@@ -58,8 +60,28 @@ honestly:
 - **Streams never corrupt.** Packet "loss" on a stream connection is
   modeled the way an application actually observes TCP loss: as
   retransmission delay (one extra round trip per lost segment). Bytes are
-  never dropped, duplicated, or reordered within a direction. Hard faults
-  (resets, partitions, asymmetry) arrive with the Phase C injector.
+  never dropped, duplicated, or reordered within a direction. The same
+  honesty governs partitions: chunks sent across a partition are *held*
+  (TCP retransmits until the link heals) and delivered in order on
+  ``heal()`` — losing mid-stream bytes is something real TCP can't do.
+  Duplicate/reorder faults belong to datagram transports, which don't exist
+  yet.
+- **The fault matrix** (`world.net`): `partition(a, b)` / `heal()`,
+  asymmetric `block(src, dst)` / `unblock`, `reset_connections(a, b)`
+  (ConnectionResetError on live connections), `set_latency`, `set_loss`.
+  A connect across a partition hangs — real SYN behavior — until a caller
+  timeout fires or the deadlock oracle reports it.
+- **Crashes tear writes.** On `host.crash()`, each buffered (unsynced)
+  write independently turns out lost, torn (a prefix reached the platter),
+  or flushed — drawn from the tape. Only `fsync()` is a promise.
+- **Buggify**: `simloom.sometimes(label, percent)` is tape-drawn inside a
+  simulation and constant-False outside one; `simloom.draw(label, bound)`
+  gives the program under test replayable randomness; `simloom.reached`
+  feeds `RunResult.coverage` so a corpus can assert its fault paths were
+  actually exercised.
+- **Clock skew is deferred**: `loop.time()` is monotonic, and real skew
+  bugs live in wall-clock comparisons (`time.time()`), which simloom does
+  not intercept yet (see below). Skew lands with stdlib-time patching.
 - **TLS is not simulated** — passing ``ssl=`` raises ``EscapedSimulationError``.
   Serve plain inside the sim.
 - **DNS is simulated and strict**: names are registered when a server binds

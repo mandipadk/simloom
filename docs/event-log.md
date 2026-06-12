@@ -63,7 +63,7 @@ float seconds). Kind-specific fields:
 | `clock_jump` | — | nothing was runnable; the clock jumped to `t` |
 | `task_created` | `task`, `coro` | a task was created (loop-owned deterministic name + coroutine qualname) |
 | `task_done` | `task`, `outcome` | `finished` or `cancelled` — never the exception (reading it would suppress asyncio's never-retrieved detection) |
-| `gc_collect` | `collected` | the controlled GC ran at a deterministic step interval |
+| `gc_collect` | — | the controlled GC ran at a deterministic step interval (object counts are process-global and deliberately excluded) |
 | `unhandled_exception` | `error` | an exception type reached the loop's handler |
 | `deadlock` | `pending` | quiescence with the listed tasks still waiting |
 | `escape` | `api` | the program touched a real-world API |
@@ -71,10 +71,17 @@ float seconds). Kind-specific fields:
 | `net_connect` | `host`, `port` | a simulated connection was established |
 | `host_crash` | `host` | a simulated host lost power |
 | `host_restart` | `host`, `generation` | a crashed host came back up |
+| `net_partition` | `a`, `b` | a bidirectional partition between host groups |
+| `net_block` | `src`, `dst` | a one-way block (asymmetric partition) |
+| `net_heal` | — | every block removed; held traffic delivered in order |
+| `net_reset` | `between` | resets injected on live connections between two hosts |
 | `run_end` | `outcome`, `error` | `ok`/`error` and the error type name (or `null`) |
 
-Network draw sites on the tape: `net.delay` (quantized link latency, bound
-64) and `net.loss` (percent roll, bound 100) — one of each per written chunk.
+Draw sites on the tape beyond `sched.pick`: `net.delay` (quantized link
+latency, bound 64) and `net.loss` (percent roll, bound 100) per written
+chunk; `disk.fate`/`disk.tear` per buffered file at a host crash;
+`buggify.<label>` (bound 100) per `simloom.sometimes` call; and any label the
+program under test passes to `simloom.draw`.
 
 ### Digest
 

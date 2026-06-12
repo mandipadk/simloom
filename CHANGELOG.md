@@ -24,3 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   semantics and entry-factory restart, `SimDisk` with honest fsync. Gate: unmodified
   aiohttp + httpx exchanging requests over the lossy simulated network, replayable
   byte-for-byte (`tests/test_world_http.py`).
+- **Phase C faults + buggify**: partition/heal (hold-and-release, streams never
+  corrupt), asymmetric block, connection-reset injection, partition-aware connects,
+  torn/lost/flushed unsynced writes on crash; `simloom.sometimes`/`draw`/`reached`
+  with `RunResult.coverage`. Gate: the toy Raft torture suite
+  (`tests/test_raft_demo.py`) catches a planted double-vote bug via exploration and
+  replays it exactly; the correct implementation survives.

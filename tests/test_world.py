@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import socket
 
 import pytest
@@ -265,9 +266,11 @@ class TestHostCrash:
                     host.disk.write("cache", b"never-synced")
                     await asyncio.sleep(1_000_000)
                 else:
-                    # After restart: synced data survived, unsynced is gone.
+                    # After restart: synced data always survives; the unsynced
+                    # write is lost, torn, or flushed — never anything else.
                     assert host.disk.read("wal") == b"synced-entry"
-                    assert not host.disk.exists("cache")
+                    if host.disk.exists("cache"):
+                        assert b"never-synced".startswith(host.disk.read("cache"))
 
             host.spawn(lambda: node())
             await world.sleep(1)
@@ -341,3 +344,200 @@ class TestSimDisk:
         disk.write("c", b"")
         disk.delete("a")
         assert disk.files() == ["b", "c"]
+
+
+class TestFaults:
+    @staticmethod
+    async def _sink(world: World, host_name: str, dns: str) -> list[bytes]:
+        inbox: list[bytes] = []
+
+        async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            with contextlib.suppress(ConnectionResetError):
+                while data := await reader.read(64):
+                    inbox.append(data)
+            writer.close()
+
+        async def serve() -> None:
+            await asyncio.start_server(handle, dns, 1)
+            await asyncio.sleep(1e9)
+
+        world.host(host_name).spawn(lambda: serve())
+        await world.sleep(0.1)
+        return inbox
+
+    def test_partition_holds_then_heals_in_order(self) -> None:
+        async def main(world: World) -> tuple[list[bytes], bytes]:
+            inbox = await self._sink(world, "a", "a.sim")
+            ha, hb = world.host("a"), world.host("b")
+
+            async def client() -> None:
+                _, writer = await asyncio.open_connection("a.sim", 1)
+                writer.write(b"one")
+                await world.sleep(0.5)
+                writer.write(b"two")  # held behind the partition
+                await world.sleep(0.5)
+                writer.write(b"three")  # after heal
+                await world.sleep(0.5)
+                writer.close()
+
+            hb.spawn(lambda: client())
+            await world.sleep(0.3)
+            world.net.partition([ha], [hb])
+            await world.sleep(0.5)
+            during = list(inbox)
+            world.net.heal()
+            await world.sleep(1.5)
+            return during, b"".join(inbox)
+
+        during, final = simloom.run(main, seed=4).value
+        assert during == [b"one"]  # nothing crossed while partitioned
+        assert final == b"onetwothree"  # nothing lost, order intact
+
+    def test_asymmetric_block(self) -> None:
+        """One-way block on an established connection: client->server bytes
+        keep flowing, server->client replies are held."""
+
+        async def main(world: World) -> tuple[bytes, bytes, bytes]:
+            received: list[bytes] = []
+
+            async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+                while data := await reader.read(64):
+                    received.append(data)
+                    writer.write(data.upper())
+                    await writer.drain()
+                writer.close()
+
+            async def serve() -> None:
+                await asyncio.start_server(handle, "a.sim", 1)
+                await asyncio.sleep(1e9)
+
+            ha, hb = world.host("a"), world.host("b")
+            ha.spawn(lambda: serve())
+            await world.sleep(0.1)
+
+            echoes: list[bytes] = []
+
+            async def client() -> None:
+                reader, writer = await asyncio.open_connection("a.sim", 1)
+                writer.write(b"one")
+                echoes.append(await reader.read(64))
+                world.net.block(ha, hb)  # server -> client now held
+                writer.write(b"two")
+                await world.sleep(2)  # reply cannot arrive
+                writer.close()
+
+            hb.spawn(lambda: client())
+            await world.sleep(3)
+            return b"".join(received), b"".join(echoes), b"|".join(echoes)
+
+        received, echoed, _ = simloom.run(main, seed=0).value
+        assert received == b"onetwo"  # b->a stayed open
+        assert echoed == b"ONE"  # a->b held after the block
+
+    def test_connect_across_partition_hangs_until_timeout(self) -> None:
+        async def main(world: World) -> str:
+            await self._sink(world, "a", "a.sim")
+            ha, hb = world.host("a"), world.host("b")
+            world.net.partition([ha], [hb])
+
+            async def client() -> str:
+                try:
+                    async with asyncio.timeout(3):
+                        await asyncio.open_connection("a.sim", 1)
+                    return "connected"
+                except TimeoutError:
+                    return f"timed out at t={asyncio.get_running_loop().time()}"
+
+            task = hb.spawn(lambda: client())
+            await world.sleep(10)
+            return str(task.result())
+
+        assert "timed out" in simloom.run(main, seed=0).value
+
+    def test_connect_succeeds_after_heal(self) -> None:
+        async def main(world: World) -> bool:
+            await self._sink(world, "a", "a.sim")
+            ha, hb = world.host("a"), world.host("b")
+            world.net.partition([ha], [hb])
+            connected = asyncio.Event()
+
+            async def client() -> None:
+                _, writer = await asyncio.open_connection("a.sim", 1)  # hangs until heal
+                connected.set()
+                writer.close()
+
+            hb.spawn(lambda: client())
+            await world.sleep(5)
+            assert not connected.is_set()
+            world.net.heal()
+            await world.until(connected.is_set, timeout=5)
+            return True
+
+        assert simloom.run(main, seed=1).value is True
+
+    def test_reset_injection(self) -> None:
+        async def main(world: World) -> str:
+            await self._sink(world, "a", "a.sim")
+            ha, hb = world.host("a"), world.host("b")
+            result: list[str] = []
+
+            async def client() -> None:
+                reader, writer = await asyncio.open_connection("a.sim", 1)
+                writer.write(b"hello")
+                try:
+                    await reader.read(64)
+                    result.append("clean")
+                except ConnectionResetError:
+                    result.append("reset")
+
+            hb.spawn(lambda: client())
+            await world.sleep(0.5)
+            world.net.reset_connections(ha, hb)
+            await world.sleep(0.5)
+            return result[0]
+
+        assert simloom.run(main, seed=0).value == "reset"
+
+    def test_torn_writes_on_crash(self) -> None:
+        async def main(world: World) -> tuple[bool, bytes | None]:
+            host = world.host("db")
+
+            async def node() -> None:
+                host.disk.write("durable", b"safe")
+                host.disk.fsync()
+                host.disk.write("risky", b"0123456789")
+                await asyncio.sleep(1e9)
+
+            host.spawn(lambda: node())
+            await world.sleep(1)
+            host.crash()
+            risky = host.disk.read("risky") if host.disk.exists("risky") else None
+            assert host.disk.read("durable") == b"safe"  # fsync always holds
+            return host.disk.exists("risky"), risky
+
+        fates = set()
+        for seed in range(40):
+            exists, risky = simloom.run(main, seed=seed).value
+            if not exists:
+                fates.add("lost")
+            elif risky == b"0123456789":
+                fates.add("flushed")
+            else:
+                assert risky is not None
+                assert b"0123456789".startswith(risky)
+                assert 0 < len(risky) < 10
+                fates.add("torn")
+        assert fates == {"lost", "torn", "flushed"}, fates
+
+    def test_buggify_in_a_world(self) -> None:
+        async def main(world: World) -> int:
+            hits = 0
+            for _ in range(50):
+                if simloom.sometimes("flaky_path", percent=20):
+                    hits += 1
+                await asyncio.sleep(0.01)
+            return hits
+
+        result = simloom.run(main, seed=11)
+        assert 0 < result.value < 50
+        assert result.coverage["flaky_path"] == result.value
