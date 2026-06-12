@@ -50,6 +50,9 @@ packages = ["src/simloom"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+# The harness must be warnings-clean: leaked coroutines, pending-task
+# destruction, and unawaited futures all surface as warnings.
+filterwarnings = ["error"]
 
 [tool.mypy]
 strict = true

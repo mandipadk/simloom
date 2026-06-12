@@ -5,8 +5,32 @@ inside a fully simulated world — virtual clock, simulated network, seeded sche
 explore thousands of execution interleavings with fault injection, and reduce every
 failure to a seed that replays it exactly, forever.
 
-> **Status: pre-alpha, Phase 0 (feasibility spikes).** Nothing here is usable yet.
-> The plan is `docs/plan.md`; locked decisions are `DIRECTIVES.md`.
+> **Status: pre-alpha, Phase A (deterministic core).** The seeded loop, choice
+> tape, replay, escape detection, and event log exist and hold a 10,000-seed
+> determinism torture in CI. There is no simulated network, no fault injection,
+> and no pytest plugin yet — those are Phases B–E. The plan is `docs/plan.md`;
+> locked decisions are `DIRECTIVES.md`; the honest boundary of what is and isn't
+> deterministic is `docs/determinism.md`.
+
+What works today:
+
+```python
+import asyncio
+import simloom
+
+async def main() -> str:
+    async def worker(n: int) -> int:
+        await asyncio.sleep(n)        # virtual seconds; wall time ~0
+        return n
+    results = await asyncio.gather(*(worker(i) for i in range(5)))
+    return f"sum={sum(results)}"
+
+result = simloom.run(main, seed=1234)   # a fresh universe from a seed
+print(result.value, result.digest)      # the digest fingerprints the universe
+
+replayed = simloom.replay(main, tape=result)
+assert replayed.digest == result.digest  # byte-identical, forever
+```
 
 ## The idea
 

@@ -39,5 +39,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: uv run --all-extras pytest
 
-  # Phase A adds the determinism-torture job here: re-run the corpus across many
-  # seeds and assert replay hash-equality (docs/plan.md, validation strategy).
+  # The Phase A gate: the harness's determinism claim, enforced at scale.
+  # 10,000 seeds; each runs twice and replays once; all three event logs
+  # must be hash-identical.
+  determinism-torture:
+    runs-on: ubuntu-latest
+    env:
+      SIMLOOM_TORTURE_SEEDS: "10000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --all-extras pytest tests/test_determinism.py -q

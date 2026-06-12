@@ -75,6 +75,23 @@ Progress notes:
 Loop, virtual time, tape, replay, escape detection, event log v1.
 **Gate:** 10k-seed determinism torture (replay hash equality) in CI.
 
+Progress notes:
+- 2026-06-12: **Phase A core shipped.** `src/simloom/`: choice tape (labeled bounded
+  draws, strict/fallback replay, versioned serialization), event log v1 (canonical
+  JSONL + digest; `docs/event-log.md`), SimLoop (tape-driven scheduling, virtual
+  clock, loop-owned task naming, escape detection across the full real-world API
+  surface, inline executor, controlled GC, ordered asyncgen shutdown, deadlock
+  reporting with task dump), `run()`/`replay()` with asyncio.run-parity deterministic
+  teardown and an unhandled-exception policy. 88 tests incl. hypothesis properties;
+  warnings-as-errors; mypy --strict clean. `docs/determinism.md` v1 states the honest
+  boundary. Torture: every seed runs twice + replays once, digests must match;
+  CI job at 10k seeds (also verified locally).
+- Design notes for later phases: replay STRICT now also fails if a run finishes
+  without consuming the whole tape (silent-divergence case); after a misalignment
+  error the tape force-falls-back so teardown stays deterministic; task collections
+  sort by (label, creation order) because label-only ties would fall back to
+  address-ordered set iteration.
+
 ### Phase B — SimWorld
 
 Hosts, network transports, DNS, `asyncpg`/`httpx`/`aiohttp` compat tests, crash/restart
