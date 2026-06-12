@@ -5,12 +5,15 @@ inside a fully simulated world — virtual clock, simulated network, seeded sche
 explore thousands of execution interleavings with fault injection, and reduce every
 failure to a seed that replays it exactly, forever.
 
-> **Status: pre-alpha, Phase A (deterministic core).** The seeded loop, choice
-> tape, replay, escape detection, and event log exist and hold a 10,000-seed
-> determinism torture in CI. There is no simulated network, no fault injection,
-> and no pytest plugin yet — those are Phases B–E. The plan is `docs/plan.md`;
-> locked decisions are `DIRECTIVES.md`; the honest boundary of what is and isn't
-> deterministic is `docs/determinism.md`.
+> **Status: pre-alpha, Phase B (deterministic core + simulated world).** The
+> seeded loop, choice tape, replay, escape detection, event log, simulated
+> network/DNS, hosts with power-cut crash semantics, and honest-fsync disks
+> exist — and hold a 10,000-seed determinism torture in CI. **Unmodified
+> aiohttp and httpx already run against each other in-sim, with latency and
+> loss injected, byte-for-byte replayable.** No fault matrix, explorer,
+> shrinker, or pytest plugin yet — Phases C–E. The plan is `docs/plan.md`;
+> locked decisions are `DIRECTIVES.md`; the honest boundary of what is and
+> isn't deterministic is `docs/determinism.md`.
 
 What works today:
 
@@ -18,19 +21,32 @@ What works today:
 import asyncio
 import simloom
 
-async def main() -> str:
-    async def worker(n: int) -> int:
-        await asyncio.sleep(n)        # virtual seconds; wall time ~0
-        return n
-    results = await asyncio.gather(*(worker(i) for i in range(5)))
-    return f"sum={sum(results)}"
+async def main(world: simloom.World) -> bytes:
+    async def handle(reader, writer):
+        writer.write((await reader.read(1024))[::-1])
+        writer.close()
 
-result = simloom.run(main, seed=1234)   # a fresh universe from a seed
-print(result.value, result.digest)      # the digest fingerprints the universe
+    async def serve():
+        await asyncio.start_server(handle, "echo.sim", 9000)
+        await world.sleep(1_000_000)
 
+    world.net.set_loss(20)                  # observed as TCP retransmit delay
+    world.host("server").spawn(lambda: serve())
+    await world.sleep(0.1)
+
+    reader, writer = await asyncio.open_connection("echo.sim", 9000)
+    writer.write(b"simloom")
+    writer.write_eof()
+    return await reader.read(1024)          # b"moolmis", on virtual time
+
+result = simloom.run(main, seed=1234)        # a fresh universe from a seed
 replayed = simloom.replay(main, tape=result)
-assert replayed.digest == result.digest  # byte-identical, forever
+assert replayed.digest == result.digest      # byte-identical, forever
 ```
+
+`world.host("n1").crash()` is a real power cut — no `finally` blocks run, unsynced
+disk writes are lost, peers see resets — and `restart()` brings the host back
+against its surviving fsynced state.
 
 ## The idea
 

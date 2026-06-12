@@ -35,6 +35,7 @@ from concurrent.futures import Executor
 from contextvars import Context
 from typing import Any, NoReturn, Protocol, TypeVar, TypeVarTuple, cast
 
+from ._context import current_host
 from ._errors import EscapedSimulationError, SimDeadlockError
 from ._eventlog import EventLog
 from ._tape import Tape
@@ -128,6 +129,21 @@ class SimLoop(asyncio.AbstractEventLoop):
             weakref.WeakKeyDictionary()
         )
         self._task_creation_seq = 0
+        # Crash semantics (docs/determinism.md): a crashed host's tasks are
+        # never scheduled again — no CancelledError, no finally blocks during
+        # the simulation. Strong references keep GC from running their
+        # cleanup mid-run; teardown revives and cancels them after the
+        # simulated universe has ended.
+        self._crashed_tasks: list[asyncio.Task[Any]] = []
+        self._crashed_ids: set[int] = set()
+        # Handles owned by crashed tasks are parked, not dropped: reviving a
+        # crashed task at teardown must re-inject its last wakeup, or a task
+        # whose awaited future completed during the crash window could never
+        # be stepped again — not even to deliver cancellation.
+        self._parked: list[asyncio.Handle] = []
+        # The simulated network, if a World attached one; None means network
+        # APIs escape (Phase A behavior).
+        self._network: Any = None
         self._asyncgens: dict[int, weakref.ref[Any]] = {}
         self._asyncgens_shutdown_called = False
 
@@ -233,12 +249,34 @@ class SimLoop(asyncio.AbstractEventLoop):
     # the deterministic heart
     # ------------------------------------------------------------------
 
+    def _is_crashed_owned(self, handle: asyncio.Handle) -> bool:
+        if not self._crashed_ids:
+            return False
+        owner = getattr(_handle_callback(handle), "__self__", None)
+        return id(owner) in self._crashed_ids
+
+    def _handle_is_dead(self, handle: asyncio.Handle) -> bool:
+        """Cancelled, or belongs to a task on a crashed host."""
+        return handle.cancelled() or self._is_crashed_owned(handle)
+
+    def _compact_ready(self) -> None:
+        kept: list[asyncio.Handle] = []
+        for handle in self._ready:
+            if handle.cancelled():
+                continue
+            if self._is_crashed_owned(handle):
+                self._parked.append(handle)  # never runs in-sim; revived at teardown
+                continue
+            kept.append(handle)
+        self._ready = kept
+
     def _run_once(self) -> None:
-        # Deterministic compaction: drop cancelled work before choosing.
+        # Deterministic compaction: cancelled work is dropped; crashed-host
+        # work is parked before choosing.
         while self._scheduled and self._scheduled[0][2].cancelled():
             heapq.heappop(self._scheduled)
-        if any(h.cancelled() for h in self._ready):
-            self._ready = [h for h in self._ready if not h.cancelled()]
+        if any(self._handle_is_dead(h) for h in self._ready):
+            self._compact_ready()
 
         if not self._ready:
             if not self._scheduled:
@@ -250,7 +288,11 @@ class SimLoop(asyncio.AbstractEventLoop):
 
         while self._scheduled and self._scheduled[0][0] <= self._now:
             _, _, timer = heapq.heappop(self._scheduled)
-            if not timer.cancelled():
+            if timer.cancelled():
+                continue
+            if self._is_crashed_owned(timer):
+                self._parked.append(timer)
+            else:
                 self._ready.append(timer)
 
         if not self._ready:
@@ -283,8 +325,8 @@ class SimLoop(asyncio.AbstractEventLoop):
         """
         steps = 0
         while self._ready:
-            if any(h.cancelled() for h in self._ready):
-                self._ready = [h for h in self._ready if not h.cancelled()]
+            if any(self._handle_is_dead(h) for h in self._ready):
+                self._compact_ready()
                 continue
             count = len(self._ready)
             index = self._tape.draw(SCHED_PICK, count) if count > 1 else 0
@@ -305,9 +347,38 @@ class SimLoop(asyncio.AbstractEventLoop):
         """Deterministic ordering for task collections (label, creation order)."""
         return (_task_label(task), self._task_order.get(task, -1))
 
+    # --- crash semantics (used by Host.crash via the world) ---
+
+    def _crash_tasks(self, tasks: list[asyncio.Task[Any]]) -> None:
+        """Stop scheduling these tasks forever: no cancellation, no finally
+        blocks during the simulation. Strong refs prevent GC from running
+        their cleanup mid-run; teardown revives and cancels them after the
+        universe ends."""
+        for task in sorted(tasks, key=self._task_sort_key):
+            if id(task) not in self._crashed_ids and not task.done():
+                self._crashed_tasks.append(task)
+                self._crashed_ids.add(id(task))
+
+    def _revive_crashed(self) -> list[asyncio.Task[Any]]:
+        """End of universe: hand the crashed tasks back for deterministic
+        post-run cancellation. Their parked handles are re-injected so each
+        task can actually be stepped again (cancellation needs a wakeup)."""
+        revived = list(self._crashed_tasks)
+        self._crashed_tasks.clear()
+        self._crashed_ids.clear()
+        self._ready.extend(self._parked)
+        self._parked.clear()
+        return revived
+
+    # --- network delegation (a World attaches a SimNetwork) ---
+
+    def attach_network(self, network: Any) -> None:
+        self._network = network
+
     def _report_deadlock(self) -> NoReturn:
+        crashed = self._crashed_ids
         pending = sorted(
-            (t for t in asyncio.all_tasks(self) if not t.done()),
+            (t for t in asyncio.all_tasks(self) if not t.done() and id(t) not in crashed),
             key=self._task_sort_key,
         )
         lines = []
@@ -413,11 +484,15 @@ class SimLoop(asyncio.AbstractEventLoop):
                 task = factory(self, coro, context=context)
             if name is not None:
                 task.set_name(name)
+        host = current_host.get()
         if name is None and task.get_name().startswith("Task-"):
             # Replace asyncio's process-global default name with a loop-owned,
             # deterministic one. Explicit names — even "Task-…" — are kept.
-            task.set_name(f"task-{self._task_name_seq}")
+            prefix = f"{host.name}/" if host is not None else ""
+            task.set_name(f"{prefix}task-{self._task_name_seq}")
             self._task_name_seq += 1
+        if host is not None:
+            host._register(task)
         self._task_order[task] = self._task_creation_seq
         self._task_creation_seq += 1
         coro_name = getattr(task.get_coro(), "__qualname__", None)
@@ -574,18 +649,26 @@ class SimLoop(asyncio.AbstractEventLoop):
         )
 
     # -- DNS / sockets / servers --
+    # With a SimNetwork attached (a World is in play), these are simulated;
+    # without one they escape.
 
     async def getaddrinfo(self, host: Any, port: Any, **kwargs: Any) -> Any:
-        self._escape_network("loop.getaddrinfo")
+        if self._network is None:
+            self._escape_network("loop.getaddrinfo")
+        return await self._network.getaddrinfo(host, port, **kwargs)
 
     async def getnameinfo(self, sockaddr: Any, flags: int = 0) -> Any:
         self._escape_network("loop.getnameinfo")
 
     async def create_connection(self, *args: Any, **kwargs: Any) -> Any:
-        self._escape_network("loop.create_connection")
+        if self._network is None:
+            self._escape_network("loop.create_connection")
+        return await self._network.create_connection(*args, **kwargs)
 
     async def create_server(self, *args: Any, **kwargs: Any) -> Any:
-        self._escape_network("loop.create_server")
+        if self._network is None:
+            self._escape_network("loop.create_server")
+        return await self._network.create_server(*args, **kwargs)
 
     async def create_datagram_endpoint(self, *args: Any, **kwargs: Any) -> Any:
         self._escape_network("loop.create_datagram_endpoint")

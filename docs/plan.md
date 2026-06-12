@@ -98,6 +98,27 @@ Hosts, network transports, DNS, `asyncpg`/`httpx`/`aiohttp` compat tests, crash/
 semantics (problem #2), disk with fsync honesty.
 **Gate:** demo #2 (real client/server with injected packet loss) runs as a test.
 
+Progress notes:
+- 2026-06-12: **Phase B core shipped; gate met.** `_net.py`: in-memory transports
+  (per-direction FIFO arrival, pause/resume, eof/close, peer-reset on crash),
+  SimServer, strict SimDNS, per-chunk latency + loss-as-retransmit-delay drawn from
+  the tape. `_world.py`: World (passed by arity to `main`), Host (contextvar task
+  ownership, crash = power cut with parked wakeups + post-universe revive-and-cancel,
+  restart from entry factories), SimDisk (buffered/synced, honest fsync, durable
+  deletes). Gate test `tests/test_world_http.py`: unmodified aiohttp + httpx exchange
+  requests over the simulated network with 20% loss and 1–30ms latency, replay
+  hash-identical. World torture added to the CI determinism job. 113 tests green.
+- Hard-won correctness notes: (1) crashed-task handles must be *parked*, not
+  dropped — a task whose awaited future completed during the crash window can
+  otherwise never be stepped again, not even to deliver teardown cancellation;
+  (2) transports must tolerate destructor-time close after the loop closed
+  (leaked StreamWriter `__del__`); (3) the host contextvar is set inside the
+  task's own context and never reset (reset tokens are invalid when a crashed
+  task's coroutine is closed from another context).
+- Deferred within Phase B scope: `asyncpg` compat needs a Postgres stand-in
+  (Phase C+ stand-in library); plain `call_soon` callbacks from host code are
+  not crash-filtered yet (documented in determinism.md).
+
 ### Phase C — Faults + buggify
 
 Full injector matrix, `sometimes()`, deadlock/quiescence oracle.

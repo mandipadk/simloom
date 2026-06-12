@@ -67,7 +67,14 @@ float seconds). Kind-specific fields:
 | `unhandled_exception` | `error` | an exception type reached the loop's handler |
 | `deadlock` | `pending` | quiescence with the listed tasks still waiting |
 | `escape` | `api` | the program touched a real-world API |
+| `net_listen` | `host`, `port` | a simulated server started listening |
+| `net_connect` | `host`, `port` | a simulated connection was established |
+| `host_crash` | `host` | a simulated host lost power |
+| `host_restart` | `host`, `generation` | a crashed host came back up |
 | `run_end` | `outcome`, `error` | `ok`/`error` and the error type name (or `null`) |
+
+Network draw sites on the tape: `net.delay` (quantized link latency, bound
+64) and `net.loss` (percent roll, bound 100) — one of each per written chunk.
 
 ### Digest
 

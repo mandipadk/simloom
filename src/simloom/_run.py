@@ -25,6 +25,7 @@ from ._eventlog import EventLog
 from ._loop import SimLoop
 from ._tape import Draw, MisalignmentPolicy, Tape
 from ._version import __version__
+from ._world import World
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +50,7 @@ class RunResult:
 
 
 def run(
-    main: Callable[[], Coroutine[Any, Any, Any]],
+    main: Callable[..., Coroutine[Any, Any, Any]],
     *,
     seed: int,
     raise_on_error: bool = True,
@@ -81,7 +82,7 @@ def run(
 
 
 def replay(
-    main: Callable[[], Coroutine[Any, Any, Any]],
+    main: Callable[..., Coroutine[Any, Any, Any]],
     *,
     tape: Tape | RunResult | Iterable[Draw],
     policy: MisalignmentPolicy = MisalignmentPolicy.STRICT,
@@ -107,7 +108,7 @@ def replay(
 
 
 def _execute(
-    main: Callable[[], Coroutine[Any, Any, Any]],
+    main: Callable[..., Coroutine[Any, Any, Any]],
     *,
     tape: Tape,
     seed: int | None,
@@ -131,6 +132,7 @@ def _execute(
         )
 
     loop = SimLoop(tape, epoch=epoch, gc_interval=gc_interval)
+    world = World(loop) if _wants_world(main) else None
     log = loop.log
     log.metadata.update(
         {
@@ -152,7 +154,8 @@ def _execute(
     error: BaseException | None = None
     try:
         try:
-            value = loop.run_until_complete(main())
+            coro = main(world) if world is not None else main()
+            value = loop.run_until_complete(coro)
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException as exc:
@@ -216,14 +219,22 @@ def _teardown(loop: SimLoop) -> BaseException | None:
     decide whether it outranks the main outcome.
     """
     try:
+        crashed_ids = set(loop._crashed_ids)
         pending = sorted(
-            (t for t in asyncio.all_tasks(loop) if not t.done()),
+            (t for t in asyncio.all_tasks(loop) if not t.done() and id(t) not in crashed_ids),
             key=loop._task_sort_key,
         )
         for task in pending:
             task.cancel()
         if pending:
             loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        # The universe has ended: crashed-host tasks may now run their
+        # cleanup, deterministically, where it can no longer affect the sim.
+        revived = loop._revive_crashed()
+        for task in revived:
+            task.cancel()
+        if revived:
+            loop.run_until_complete(asyncio.gather(*revived, return_exceptions=True))
         loop.run_until_complete(loop.shutdown_asyncgens())
         # Flush finalizers and weakref callbacks at a deterministic point,
         # then run anything they scheduled.
@@ -247,6 +258,28 @@ def _unhandled_error(loop: SimLoop) -> UnhandledExceptionError:
     if isinstance(exc, BaseException):
         error.__cause__ = exc
     return error
+
+
+def _wants_world(main: Callable[..., object]) -> bool:
+    """True iff ``main`` declares a positional parameter to receive the World
+    (the ``async def test(world)`` shape from the north-star API)."""
+    import inspect
+
+    try:
+        signature = inspect.signature(main)
+    except (TypeError, ValueError):
+        return False
+    required = [
+        p
+        for p in signature.parameters.values()
+        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)
+        and p.default is inspect.Parameter.empty
+    ]
+    if len(required) > 1:
+        raise TypeError(
+            f"main may take at most one positional parameter (the World); got {len(required)}"
+        )
+    return len(required) == 1
 
 
 def _hash_randomization_pinned() -> bool:

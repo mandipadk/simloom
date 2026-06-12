@@ -18,3 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RunResult` with a sha256 universe digest; event log format v1
   (`docs/event-log.md`); honesty doc (`docs/determinism.md`); 10,000-seed
   determinism-torture CI job.
+- **Phase B world**: simulated network behind the loop primitives (in-memory
+  transports with FIFO stream guarantees, `SimServer`, strict `SimDNS`, tape-driven
+  latency and loss-as-retransmission-delay), `World`/`Host` with power-cut crash
+  semantics and entry-factory restart, `SimDisk` with honest fsync. Gate: unmodified
+  aiohttp + httpx exchanging requests over the lossy simulated network, replayable
+  byte-for-byte (`tests/test_world_http.py`).

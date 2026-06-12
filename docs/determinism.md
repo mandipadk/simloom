@@ -2,8 +2,9 @@
 
 This document is the honest boundary of the simulation. It will always state
 exactly what is deterministic, what escapes, and what we detect versus what
-we merely document. Status: **Phase A** — the deterministic loop and tape
-exist; the simulated world (network, hosts, disk) does not yet.
+we merely document. Status: **Phase B** — the deterministic loop, tape, and
+simulated world (network, hosts with crash/restart, disk) exist; fault
+injection beyond latency/loss, and the explorer, do not yet.
 
 ## The guarantee
 
@@ -46,6 +47,44 @@ below).
   (e.g. how many callbacks a given primitive schedules), which can change
   between Python versions. Tapes record bounds, so cross-version divergence
   is *detected* (strict replay fails loudly), not silent.
+
+## The simulated world (Phase B)
+
+When the program under test accepts a ``World`` parameter, the network is
+simulated: ``create_connection``, ``create_server``, and ``getaddrinfo``
+route through in-memory transports instead of escaping. What that means,
+honestly:
+
+- **Streams never corrupt.** Packet "loss" on a stream connection is
+  modeled the way an application actually observes TCP loss: as
+  retransmission delay (one extra round trip per lost segment). Bytes are
+  never dropped, duplicated, or reordered within a direction. Hard faults
+  (resets, partitions, asymmetry) arrive with the Phase C injector.
+- **TLS is not simulated** — passing ``ssl=`` raises ``EscapedSimulationError``.
+  Serve plain inside the sim.
+- **DNS is simulated and strict**: names are registered when a server binds
+  to them (or explicitly via ``world.net.dns.register``); unknown names
+  raise ``socket.gaierror`` like NXDOMAIN.
+
+**Crash semantics.** ``host.crash()`` is a power cut, not a shutdown:
+
+- The host's tasks are never scheduled again. No ``CancelledError``, no
+  ``finally`` blocks, no ``__aexit__`` runs *during the simulation* — that
+  would be a graceful shutdown, which is exactly what a crash is not.
+- The loop holds strong references to the abandoned tasks (so GC cannot run
+  their cleanup mid-run) and parks their pending wakeups. After the
+  simulated universe ends, teardown revives and cancels them at a
+  deterministic point; their cleanup runs then, where it can no longer
+  affect the simulation.
+- Unsynced disk writes are lost (``host.disk`` has honest fsync semantics);
+  peers of open connections observe ``ConnectionResetError``; the host's
+  listeners stop accepting.
+- Known limitation: plain ``call_soon`` callbacks scheduled by host code
+  before the crash (not bound to one of its tasks) may still run — only
+  task wakeups are crash-filtered today. The Phase C fault matrix tightens
+  this.
+- ``host.disk`` is an explicit API. Real file I/O (``open()``) bypasses the
+  simulation undetectably and is not crash-consistent.
 
 ## What escapes — detected
 

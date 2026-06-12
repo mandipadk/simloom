@@ -137,3 +137,69 @@ def test_torture_value_is_schedule_dependent() -> None:
     above proves less than it claims."""
     openings = {simloom.run(kitchen_sink, seed=seed).value["opening"] for seed in range(60)}
     assert openings == {"p1", "p2"}
+
+
+async def world_kitchen_sink(world: Any) -> dict[str, Any]:
+    """A world workload: lossy network traffic plus a crash and restart."""
+    received: list[bytes] = []
+
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        while data := await reader.read(64):
+            received.append(data)
+            writer.write(data[::-1])
+            await writer.drain()
+        writer.close()
+
+    async def serve() -> None:
+        host = world.host("srv")
+        host.disk.write("boot", f"gen-{host.generation}".encode())
+        host.disk.fsync("boot")
+        await asyncio.start_server(handle, "srv.sim", 7)
+        await asyncio.sleep(1_000_000)
+
+    world.net.set_loss(25)
+    server = world.host("srv")
+    server.spawn(lambda: serve())
+    await world.sleep(0.1)
+
+    reader, writer = await asyncio.open_connection("srv.sim", 7)
+    writer.write(b"alpha")
+    reply = await reader.read(64)
+
+    server.crash()
+    try:
+        await reader.read(64)
+        outcome = "clean"
+    except ConnectionResetError:
+        outcome = "reset"
+    server.restart()
+    await world.sleep(0.2)
+
+    reader2, writer2 = await asyncio.open_connection("srv.sim", 7)
+    writer2.write(b"beta")
+    reply2 = await reader2.read(64)
+    writer2.close()
+    return {
+        "reply": reply,
+        "outcome": outcome,
+        "reply2": reply2,
+        "boot": server.disk.read("boot"),
+        "generation": server.generation,
+    }
+
+
+def test_world_torture_record_rerecord_replay() -> None:
+    """The Phase B claim at scale: network + crash + restart, hash-identical
+    across re-runs and replays. Heavier per seed than the Phase A torture,
+    so it runs a tenth of the seed budget."""
+    for seed in range(max(SEEDS // 10, 30)):
+        first = simloom.run(world_kitchen_sink, seed=seed, raise_on_error=False)
+        again = simloom.run(world_kitchen_sink, seed=seed, raise_on_error=False)
+        replayed = simloom.replay(world_kitchen_sink, tape=first, raise_on_error=False)
+        assert first.outcome == "ok", f"seed {seed}: {first.error!r}"
+        assert first.value["reply"] == b"ahpla"
+        assert first.value["reply2"] == b"ateb"
+        assert first.value["boot"] == b"gen-1"
+        assert again.digest == first.digest, f"seed {seed}: re-run diverged"
+        assert replayed.digest == first.digest, f"seed {seed}: replay diverged"
+        assert replayed.value == first.value
