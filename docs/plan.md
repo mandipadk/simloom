@@ -48,20 +48,26 @@ Source of truth for decisions: `DIRECTIVES.md`. Background and full rationale: `
 
 Each spike: standalone script under `spikes/` + findings section in `spikes/FINDINGS.md`.
 
-- [ ] **S1** Seeded scheduler: two seeds → two interleavings; same seed → byte-identical
+- [x] **S1** Seeded scheduler: two seeds → two interleavings; same seed → byte-identical
       event log.
-- [ ] **S2** Virtual clock: 1 simulated hour of sleep traffic in <1s wall.
-- [ ] **S3** **Load-bearing:** unmodified `httpx` ↔ `aiohttp` in-sim via loop-level
+- [x] **S2** Virtual clock: 1 simulated hour of sleep traffic in <1s wall.
+- [x] **S3** **Load-bearing:** unmodified `httpx` ↔ `aiohttp` in-sim via loop-level
       transports.
-- [ ] **S4** Tape replay equality under faults (drop/delay decisions on the tape).
-- [ ] **S5** Seeded toy race found by random exploration; manual shrink proves the
+- [x] **S4** Tape replay equality under faults (drop/delay decisions on the tape).
+- [x] **S5** Seeded toy race found by random exploration; manual shrink proves the
       artifact story.
 
 **Gate:** all five pass → `spikes/FINDINGS.md` complete, package scaffolded, D1–D8
-locked. Then Phase A.
+locked. Then Phase A. ✅ **Gate met 2026-06-12.**
 
 Progress notes:
 - 2026-06-12: Project started. Name locked (simloom), D1–D9 ratified, repo scaffolded.
+- 2026-06-12: **All five spikes pass; Phase 0 complete in one session.** Evidence and
+  design lessons in `spikes/FINDINGS.md` — notably: stream FIFO must be a network-layer
+  invariant (the scheduler reordered TCP bytes until it was); task labeling must be
+  loop-owned (asyncio's global `Task-N` counter leaks); schedule-tape shrinking
+  minimizes FIFO deviations, not length (12 → 1 on the S5 race). The S3 loop-surface
+  list is Phase A's implementation checklist.
 
 ### Phase A — SimLoop + tape, production quality
 
