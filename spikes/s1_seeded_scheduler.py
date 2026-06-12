@@ -31,7 +31,14 @@ def _describe(handle: asyncio.Handle) -> str:
     owner = getattr(callback, "__self__", None)
     if isinstance(owner, asyncio.Task):
         kind = getattr(callback, "__name__", type(callback).__name__)
-        return f"{owner.get_name()}:{kind}"
+        name = owner.get_name()
+        if name.startswith("Task-"):
+            # Tasks born outside loop.create_task carry asyncio's process-global
+            # "Task-N" counter, which differs run to run; the coroutine's
+            # qualname is stable.
+            coro = owner.get_coro()
+            name = getattr(coro, "__qualname__", name)
+        return f"{name}:{kind}"
     return getattr(callback, "__qualname__", type(callback).__name__)
 
 
@@ -52,9 +59,16 @@ class SpikeLoop(asyncio.AbstractEventLoop):
         self._task_counter = 0
         self._step_counter = 0
         self._loop_exc: BaseException | None = None
+        self._task_factory: Callable[..., asyncio.Task[Any]] | None = None
         self.events: list[dict[str, Any]] = []
 
     # --- introspection the asyncio machinery relies on ---
+
+    def set_task_factory(self, factory: Callable[..., asyncio.Task[Any]] | None) -> None:
+        self._task_factory = factory
+
+    def get_task_factory(self) -> Callable[..., asyncio.Task[Any]] | None:
+        return self._task_factory
 
     def time(self) -> float:
         return self._time
