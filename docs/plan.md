@@ -5,8 +5,7 @@ Deterministic simulation testing (DST) for Python's asyncio ecosystem: run an
 network/disk/DNS, seeded scheduler), explore thousands of interleavings with fault
 injection, and reduce every failure to a 100%-reproducible, automatically shrunk seed.
 
-Source of truth for decisions: `DIRECTIVES.md`. Background and full rationale live in the
-project brief (internal, untracked).
+Source of truth for decisions: `DIRECTIVES.md`.
 
 ## Problems (the hard catalog)
 
@@ -165,7 +164,7 @@ Progress notes:
   via the pytest11 entry point, D5 honored: core importable without pytest). A
   decorated async test explores N universes; the first failure is shrunk, written to
   `.sim/failures/` (tape JSON incl. scheduler + events JSONL + shrunk tape), and
-  reported with the brief's product-moment UX: seed, re-run command
+  reported with the product-moment UX: seed, re-run command
   (`--simloom-seed=N`), error, and the minimal-schedule story — internal frames
   hidden, the user's own assertion traceback chained above. Options:
   `--simloom-seed`, `--simloom-runs`, `--simloom-tape` (replay an artifact file),
@@ -178,12 +177,15 @@ Progress notes:
   python/cpython#86296) reproduced under simloom: the vendored pre-fix
   implementation fails with a seed and replays byte-identically; the modern stdlib
   survives 500 universes of the identical torture (`tests/test_oss_repro.py` keeps
-  both claims green in CI). `docs/launch-post.md` drafted for owner edit.
-  Pre-public audit done: BRIEF.md already scrubbed from history; DIRECTIVES.md
-  reworded for public reading (decisions unchanged).
+  both claims green in CI). `docs/launch-post.md` drafted for maintainer edit.
+- 2026-06-13: **Packaging for public release.** Advertising README, single-source
+  version (`src/simloom/_version.py`, read by hatchling), `[project.urls]`, cut
+  `0.1.0` in the changelog, and a `release.yml` workflow that publishes to PyPI via
+  Trusted Publishing (the `pypi` environment) on a published GitHub Release, gated on
+  the full test/lint/type suite and a tag-vs-version check.
 - Still open before the public flip: find a *new* bug in a real OSS library and
   report it upstream (the second half of demo #4 — genuinely open-ended research);
-  owner edit + publish of the launch post; the D9 visibility flip itself.
+  maintainer edit + publish of the launch post; the D9 visibility flip itself.
 
 ## Validation strategy
 

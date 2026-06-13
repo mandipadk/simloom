@@ -749,7 +749,6 @@ wheels = [
 
 [[package]]
 name = "simloom"
-version = "0.0.1.dev0"
 source = { editable = "." }
 
 [package.optional-dependencies]

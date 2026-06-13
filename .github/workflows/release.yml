@@ -1,0 +1,90 @@
+name: Release
+
+# Publishes to PyPI when a GitHub Release is published.
+#
+# Uses PyPI Trusted Publishing (OIDC) — no API token or secret. This requires,
+# on PyPI's side, a trusted publisher configured for this project pointing at:
+#   owner/repo:   mandipadk/simloom
+#   workflow:     release.yml   (this file's name)
+#   environment:  pypi
+# The `pypi` GitHub environment below must match that configuration.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}   # manual dry run: builds and validates, never publishes
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & validate
+    runs-on: ubuntu-latest
+    env:
+      PYTHONHASHSEED: "0"   # cross-process replay needs pinned hashing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      # Never ship a broken release: re-run the full gate on the tagged tree.
+      - name: Lint
+        run: uv run --all-extras ruff check .
+      - name: Format check
+        run: uv run --all-extras ruff format --check .
+      - name: Type check
+        run: uv run --all-extras mypy src
+      - name: Test
+        run: uv run --all-extras pytest
+
+      - name: Verify the release tag matches the package version
+        if: github.event_name == 'release'
+        run: |
+          version="$(uv run python -c 'import simloom; print(simloom.__version__)')"
+          tag="${GITHUB_REF_NAME#v}"
+          echo "package version: $version"
+          echo "release tag:     $tag"
+          if [ "$version" != "$tag" ]; then
+            echo "::error::tag '$tag' does not match package version '$version' (bump src/simloom/_version.py)"
+            exit 1
+          fi
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Check distribution metadata
+        run: uvx twine check dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/simloom/
+    permissions:
+      id-token: write   # OIDC token for Trusted Publishing
+      contents: write   # attach built artifacts to the GitHub Release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Attach artifacts to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" dist/* --repo "${GITHUB_REPOSITORY}" --clobber

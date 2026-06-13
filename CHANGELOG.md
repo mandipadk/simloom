@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-13
+
+First public release. The deterministic core, simulated world, fault matrix,
+explorer, shrinker, and pytest plugin are all present and exercised by a
+10,000-seed determinism torture in CI.
+
 ### Added
 - Project scaffold: `src/` layout, strict mypy, ruff, pytest + hypothesis, CI.
 - Phase 0 feasibility spikes under `spikes/`.
@@ -46,3 +52,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `examples/bpo42130.py` — the historical `asyncio.wait_for` cancellation-swallowing
   race (bpo-42130) reproduced deterministically from a seed; the modern stdlib
   survives the identical torture. Launch-post draft in `docs/launch-post.md`.
+
+[Unreleased]: https://github.com/mandipadk/simloom/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/mandipadk/simloom/releases/tag/v0.1.0
