@@ -172,9 +172,18 @@ Progress notes:
   `--simloom-no-shrink`; unpinned-PYTHONHASHSEED warning on replay.
   `require_coverage=[...]` makes per-test sometimes-assertions: a green corpus that
   never exercised the labeled paths fails.
-- Remaining for launch: `examples/` polish (move toy_raft out of tests), the OSS-bug
-  reproduction hunt (demo #4 — research-shaped, own session), the launch post, and
-  the pre-public audit of BRIEF-adjacent content (DIRECTIVES.md tone) per D9.
+- 2026-06-13: **examples/, demo #4, and the launch draft shipped.** `examples/`
+  now holds the runnable toy Raft and `bpo42130.py` — the historical CPython race
+  (asyncio.wait_for swallowing delivered cancellations, bpo-42130 /
+  python/cpython#86296) reproduced under simloom: the vendored pre-fix
+  implementation fails with a seed and replays byte-identically; the modern stdlib
+  survives 500 universes of the identical torture (`tests/test_oss_repro.py` keeps
+  both claims green in CI). `docs/launch-post.md` drafted for owner edit.
+  Pre-public audit done: BRIEF.md already scrubbed from history; DIRECTIVES.md
+  reworded for public reading (decisions unchanged).
+- Still open before the public flip: find a *new* bug in a real OSS library and
+  report it upstream (the second half of demo #4 — genuinely open-ended research);
+  owner edit + publish of the launch post; the D9 visibility flip itself.
 
 ## Validation strategy
 

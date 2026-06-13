@@ -42,3 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as replayable artifacts, and reported with seed + re-run command + minimal
   schedule. Options: `--simloom-seed`, `--simloom-runs`, `--simloom-tape`,
   `--simloom-no-shrink`; `require_coverage` for per-test sometimes-assertions.
+- **Examples + demo #4**: `examples/toy_raft.py` (runnable) and
+  `examples/bpo42130.py` — the historical `asyncio.wait_for` cancellation-swallowing
+  race (bpo-42130) reproduced deterministically from a seed; the modern stdlib
+  survives the identical torture. Launch-post draft in `docs/launch-post.md`.

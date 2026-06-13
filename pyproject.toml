@@ -90,3 +90,5 @@ ignore = [
 "spikes/*" = ["ASYNC"]  # spikes intentionally poke at loop internals
 # `simloom.test` is the public decorator factory, not a pytest test function.
 "src/simloom/_testing.py" = ["PT028"]
+# Vendored historical CPython code: the `timeout` parameter IS the subject.
+"examples/bpo42130.py" = ["ASYNC109"]

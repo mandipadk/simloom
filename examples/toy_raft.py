@@ -236,3 +236,25 @@ def raft_world(*, buggy: bool, nodes: int = 5, rounds: int = 6, allow_crash: boo
         return {term: sorted(who) for term, who in sorted(leaders_by_term.items())}
 
     return main
+
+
+def _violations(value: dict[int, list[str]]) -> dict[int, list[str]]:
+    return {term: who for term, who in value.items() if len(who) > 1}
+
+
+if __name__ == "__main__":
+    print("exploring the buggy variant (votedFor ignored) ...")
+    bad: list[int] = []
+    for seed in range(60):
+        result = simloom.run(raft_world(buggy=True), seed=seed)
+        if _violations(result.value):
+            bad.append(seed)
+    print(f"  {len(bad)}/60 seeds elect two leaders in one term: {bad[:10]}")
+
+    print("exploring the correct variant under the same torture ...")
+    clean = sum(
+        1
+        for seed in range(60)
+        if _violations(simloom.run(raft_world(buggy=False), seed=seed).value)
+    )
+    print(f"  {clean}/60 seeds violate election safety (expected 0)")

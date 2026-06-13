@@ -11,8 +11,9 @@ from __future__ import annotations
 
 import os
 
-import simloom
 from toy_raft import raft_world
+
+import simloom
 
 EXPLORE_CAP = int(os.environ.get("SIMLOOM_RAFT_EXPLORE_CAP", "60"))
 SURVIVAL_SEEDS = int(os.environ.get("SIMLOOM_RAFT_SURVIVAL_SEEDS", "15"))
