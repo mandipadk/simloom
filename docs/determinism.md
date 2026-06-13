@@ -5,8 +5,8 @@ exactly what is deterministic, what escapes, and what we detect versus what
 we merely document. Status: **Phase C** — the deterministic loop, tape,
 simulated world, the fault matrix (partitions, asymmetric blocks, resets,
 crashes with torn writes, latency/loss), buggify, and the Phase D explorer
-(random walk + PCT, serial or multiprocess) and tape shrinker exist. The
-pytest plugin (Phase E) does not yet.
+(random walk + PCT, serial or multiprocess), tape shrinker, and the pytest
+plugin (`@simloom.test`) exist.
 
 Explorer/shrinker notes: PCT scheduling draws its priorities and change
 points from the tape, so PCT universes replay and shrink like any other.
@@ -44,7 +44,7 @@ below).
   iteration order for hash-randomized types differs per process otherwise,
   and any program that iterates a set of strings makes hash-order-dependent
   decisions. The run header records `hash_randomization_pinned`; the pytest
-  plugin (Phase E) will enforce it.
+  plugin warns when replaying a seed or tape without it pinned.
 - Iterating sets/dicts keyed by *identity* (default `object.__hash__`) is
   ordered by memory address and is **not reproducible across processes even
   with PYTHONHASHSEED pinned**. simloom avoids this internally (ordered

@@ -251,12 +251,7 @@ class Tape:
     # --- serialization (versioned, self-describing; see docs/event-log.md) ---
 
     def to_dict(self) -> dict[str, Any]:
-        return {
-            "format": TAPE_FORMAT,
-            "version": TAPE_FORMAT_VERSION,
-            "seed": self._seed,
-            "draws": [[d.label, d.value, d.bound] for d in self._draws],
-        }
+        return serialize_draws(self._draws, seed=self._seed)
 
     def dumps(self) -> str:
         return json.dumps(self.to_dict(), sort_keys=True, separators=(",", ":"))
@@ -302,3 +297,13 @@ class Tape:
 def replay_draws(draws: Sequence[Draw]) -> Tape:
     """Shorthand for :meth:`Tape.replay` with strict policy."""
     return Tape.replay(tuple(draws))
+
+
+def serialize_draws(draws: Sequence[Draw], *, seed: int | None) -> dict[str, Any]:
+    """The versioned tape document for any draw sequence (artifact files)."""
+    return {
+        "format": TAPE_FORMAT,
+        "version": TAPE_FORMAT_VERSION,
+        "seed": seed,
+        "draws": [[d.label, d.value, d.bound] for d in draws],
+    }

@@ -37,3 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   replay-matched recording. Gate: the benchmark bug zoo measures find rates — PCT
   finds the starvation-class bug a random walk never does (0 vs 151 of 400 seeds),
   and random dominates shallow races; both results asserted in CI.
+- **Phase E pytest plugin**: `@simloom.test(runs=N)` turns an async test into a
+  seed-exploring simulation test — failures are shrunk, written to `.sim/failures/`
+  as replayable artifacts, and reported with seed + re-run command + minimal
+  schedule. Options: `--simloom-seed`, `--simloom-runs`, `--simloom-tape`,
+  `--simloom-no-shrink`; `require_coverage` for per-test sometimes-assertions.

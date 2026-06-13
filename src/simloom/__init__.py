@@ -25,6 +25,7 @@ from ._run import RunResult, replay, run
 from ._sched import PCT, RandomWalk
 from ._shrink import ShrinkResult, shrink
 from ._tape import TAPE_FORMAT_VERSION, Draw, MisalignmentPolicy, Tape
+from ._testing import Settings, SimloomTestFailure, test
 from ._version import __version__
 from ._world import Host, SimDisk, World
 
@@ -41,6 +42,7 @@ __all__ = [
     "MisalignmentPolicy",
     "RandomWalk",
     "RunResult",
+    "Settings",
     "ShrinkResult",
     "SimDeadlockError",
     "SimDisk",
@@ -49,6 +51,7 @@ __all__ = [
     "SimServer",
     "SimTransport",
     "SimloomError",
+    "SimloomTestFailure",
     "Tape",
     "TapeMisalignmentError",
     "UnhandledExceptionError",
@@ -61,4 +64,5 @@ __all__ = [
     "run",
     "shrink",
     "sometimes",
+    "test",
 ]

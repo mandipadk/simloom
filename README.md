@@ -14,10 +14,11 @@ failure to a seed that replays it exactly, forever.
 > **Unmodified aiohttp and httpx run against each other in-sim with faults
 > injected; a toy Raft torture suite catches a planted election-safety bug
 > from a seed; the shrinker reduces a failing schedule to "FIFO except one
-> pick"; and PCT finds a starvation bug a random walk never does (0 vs 151 of
-> 400 seeds).** No pytest plugin yet — Phase E. The plan is `docs/plan.md`;
-> locked decisions are `DIRECTIVES.md`; the honest boundary of what is and
-> isn't deterministic is `docs/determinism.md`.
+> pick"; PCT finds a starvation bug a random walk never does (0 vs 151 of
+> 400 seeds); and the pytest plugin ships it all as `@simloom.test`.**
+> Remaining before launch: examples polish and the OSS-bug reproduction hunt.
+> The plan is `docs/plan.md`; locked decisions are `DIRECTIVES.md`; the honest
+> boundary of what is and isn't deterministic is `docs/determinism.md`.
 
 What works today:
 
@@ -51,6 +52,24 @@ assert replayed.digest == result.digest      # byte-identical, forever
 `world.host("n1").crash()` is a real power cut — no `finally` blocks run, unsynced
 disk writes are lost, peers see resets — and `restart()` brings the host back
 against its surviving fsynced state.
+
+And as a pytest test:
+
+```python
+@simloom.test(runs=2000)
+async def test_lease_exclusivity():
+    ...  # your unmodified asyncio code + plain asserts
+```
+
+```
+FAILED test_lease_exclusivity — simloom found a failing universe
+  seed: 17   (re-run: pytest -k lease --simloom-seed=17)
+  error: AssertionError: two holders of an exclusive lease
+  shrunk: 31 draws -> 29, schedule deviations 25 -> 1 (106 candidate runs)
+  minimal schedule: FIFO everywhere except:
+    draw #0: sched.pick = 1 (of 4)
+  artifacts: .sim/failures/test_lease_exclusivity-seed17.tape.json, ...
+```
 
 ## The idea
 

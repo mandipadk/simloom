@@ -160,6 +160,22 @@ Progress notes:
 `@sim.test`, failure UX, `docs/determinism.md`, examples, OSS-bug reproduction hunt
 (demo #4), launch post.
 
+Progress notes:
+- 2026-06-12: **pytest plugin shipped** (`@simloom.test` + `simloom._pytest_plugin`
+  via the pytest11 entry point, D5 honored: core importable without pytest). A
+  decorated async test explores N universes; the first failure is shrunk, written to
+  `.sim/failures/` (tape JSON incl. scheduler + events JSONL + shrunk tape), and
+  reported with the brief's product-moment UX: seed, re-run command
+  (`--simloom-seed=N`), error, and the minimal-schedule story — internal frames
+  hidden, the user's own assertion traceback chained above. Options:
+  `--simloom-seed`, `--simloom-runs`, `--simloom-tape` (replay an artifact file),
+  `--simloom-no-shrink`; unpinned-PYTHONHASHSEED warning on replay.
+  `require_coverage=[...]` makes per-test sometimes-assertions: a green corpus that
+  never exercised the labeled paths fails.
+- Remaining for launch: `examples/` polish (move toy_raft out of tests), the OSS-bug
+  reproduction hunt (demo #4 — research-shaped, own session), the launch post, and
+  the pre-public audit of BRIEF-adjacent content (DIRECTIVES.md tone) per D9.
+
 ## Validation strategy
 
 Everything local. CI enforces the determinism claim itself: a dedicated job re-runs the
