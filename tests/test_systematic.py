@@ -97,3 +97,54 @@ class TestBasics:
         assert result.schedules == 5
         assert not result.exhaustive
         assert not result.proven_correct  # never claim correctness on a truncated search
+
+
+class TestPluginIntegration:
+    def test_systematic_test_passes_a_correct_program(self, pytester: pytest.Pytester) -> None:
+        pytester.makepyfile(
+            """
+            import asyncio
+            import simloom
+
+            @simloom.test(systematic=True, max_delays=3)
+            async def test_correct_mutex():
+                lock = asyncio.Lock(); st = {"in": 0, "bad": False}
+                async def worker():
+                    async with lock:
+                        st["in"] += 1
+                        if st["in"] > 1: st["bad"] = True
+                        await asyncio.sleep(0); st["in"] -= 1
+                await asyncio.gather(*(worker() for _ in range(3)))
+                assert not st["bad"]
+            """
+        )
+        pytester.runpytest("-p", "no:cacheprovider").assert_outcomes(passed=1)
+
+    def test_systematic_test_fails_a_buggy_program(self, pytester: pytest.Pytester) -> None:
+        pytester.makepyfile(
+            """
+            import asyncio
+            import simloom
+
+            @simloom.test(systematic=True, max_delays=2)
+            async def test_check_then_set():
+                st = {"locked": False, "depth": 0, "worst": 0}
+                async def contender(stagger):
+                    for _ in range(stagger + 1):
+                        await asyncio.sleep(0)
+                    if not st["locked"]:
+                        await asyncio.sleep(0)
+                        st["locked"] = True; st["depth"] += 1
+                        st["worst"] = max(st["worst"], st["depth"])
+                        await asyncio.sleep(0)
+                        st["depth"] -= 1; st["locked"] = False
+                await asyncio.gather(*(contender(i) for i in range(4)))
+                assert st["worst"] <= 1
+            """
+        )
+        result = pytester.runpytest("-p", "no:cacheprovider")
+        result.assert_outcomes(failed=1)
+        assert "systematic search found a failing interleaving" in result.stdout.str()
+
+
+pytest_plugins = ["pytester"]

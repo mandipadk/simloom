@@ -17,7 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   correctness* — `result.proven_correct` is True when it exhausts the space with
   no failure. Delay bounding (Emmi/Qadeer/Rakamarić) keeps it tractable without
   the happens-before tracking full partial-order reduction needs; found failures
-  replay and shrink like any tape.
+  replay and shrink like any tape. Available as `@simloom.test(systematic=True,
+  max_delays=2)` — bounded verification as an ordinary pytest test: the test
+  passes as a proof up to the bound, or fails deterministically with a shrunk,
+  replayable witness interleaving.
 - **Phase H (3/3) — soak testing.** `simloom.soak(main, count=, shards=, shard=,
   checkpoint=)` runs continuous, shardable, resumable exploration. Sharding is by
   stride, so shards are disjoint and complete by construction; the checkpoint

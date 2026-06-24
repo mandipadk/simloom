@@ -18,6 +18,7 @@ from typing import Any
 from ._explore import explore
 from ._run import RunResult, replay, run
 from ._shrink import ShrinkResult, shrink
+from ._systematic import explore_systematic
 from ._tape import Tape, serialize_draws
 
 
@@ -48,6 +49,8 @@ def test(
     virtual_time: bool = True,
     seed_randomness: bool = True,
     check_determinism: bool = False,
+    systematic: bool = False,
+    max_delays: int = 2,
     **run_kwargs: Any,
 ) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Callable[..., None]]:
     """Turn an async test into a seed-exploring simulation test.
@@ -60,6 +63,11 @@ def test(
     lower-level ``run``/``replay``): a test wants full determinism, so the wall
     clock (``time.time``/``monotonic``) and the stdlib RNG (``random``,
     ``os.urandom``, ``uuid4``) are tape-driven by default. Pass False to opt out.
+
+    ``systematic=True`` switches the test from sampling seeds to *exhaustive*
+    exploration: every interleaving within ``max_delays`` delays is checked, so
+    the test fails deterministically if any such schedule fails, and otherwise
+    passes as a bounded proof of correctness (see ``explore_systematic``).
     """
     # virtual_time/seed_randomness are forwarded to run()/replay()/shrink() (all
     # accept them). check_determinism is run()-only — it must NOT reach replay()
@@ -79,6 +87,8 @@ def test(
                 shrink_budget=shrink_budget,
                 require_coverage=tuple(require_coverage),
                 check_determinism=check_determinism,
+                systematic=systematic,
+                max_delays=max_delays,
                 run_kwargs=run_kwargs,
             )
 
@@ -103,6 +113,8 @@ def _execute(
     shrink_budget: int,
     require_coverage: tuple[str, ...],
     check_determinism: bool,
+    systematic: bool,
+    max_delays: int,
     run_kwargs: dict[str, Any],
 ) -> None:
     __tracebackhide__ = True
@@ -110,6 +122,9 @@ def _execute(
     check_determinism = check_determinism or settings.force_check_determinism
     if settings.tape_path is not None:
         _replay_tape_file(fn, settings.tape_path, scheduler, run_kwargs)
+        return
+    if systematic and settings.seed_override is None:
+        _execute_systematic(fn, max_delays, shrink_budget, settings, run_kwargs)
         return
     if settings.seed_override is not None:
         result = run(
@@ -165,6 +180,47 @@ def _execute(
         f"(re-run: pytest -k {fn.__name__} --simloom-seed={failure.seed})",
         f"  error: {type(original).__name__}: {str(original)[:300]}",
         f"  explored: {exploration.runs} universe(s); {len(exploration.failures)} failed",
+    ]
+    if shrunk is not None:
+        lines.append("  " + shrunk.describe().replace("\n", "\n  "))
+    if artifact_note:
+        lines.append(f"  artifacts: {artifact_note}")
+    raise SimloomTestFailure("\n".join(lines)) from original
+
+
+def _execute_systematic(
+    fn: Callable[..., Coroutine[Any, Any, Any]],
+    max_delays: int,
+    shrink_budget: int,
+    settings: Settings,
+    run_kwargs: dict[str, Any],
+) -> None:
+    """Run the test under exhaustive, delay-bounded systematic exploration: a
+    bug in any interleaving within ``max_delays`` delays fails deterministically;
+    otherwise the test passes as a bounded proof of correctness."""
+    __tracebackhide__ = True
+    result = explore_systematic(fn, max_delays=max_delays, **run_kwargs)
+    if not result.failed:
+        return  # exhausted with no failure (or none within budget) -> pass
+
+    witness = result.first
+    assert witness is not None
+    original = witness.error
+    assert original is not None
+
+    shrunk = (
+        shrink(fn, witness, max_runs=shrink_budget, **run_kwargs)
+        if settings.shrink_enabled
+        else None
+    )
+    artifact_note = _write_artifacts(fn.__name__, witness, shrunk, settings.artifact_dir)
+
+    lines = [
+        f"simloom systematic search found a failing interleaving for {fn.__name__}",
+        f"  delays: {result.first_failure_delays} (non-default scheduling choices); "
+        f"schedule {result.first_failure_at} of {result.schedules} explored",
+        f"  error: {type(original).__name__}: {str(original)[:300]}",
+        "  re-run: save the artifact tape and replay with --simloom-tape",
     ]
     if shrunk is not None:
         lines.append("  " + shrunk.describe().replace("\n", "\n  "))
