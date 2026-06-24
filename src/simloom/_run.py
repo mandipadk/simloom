@@ -28,7 +28,7 @@ from ._errors import (
 from ._eventlog import EventLog
 from ._loop import SimLoop
 from ._patches import DEFAULT_WALL_EPOCH, patched_environment
-from ._sched import SchedulerFactory, resolve_scheduler
+from ._sched import SchedulerFactory, auto_pct_depth, resolve_scheduler
 from ._tape import Draw, MisalignmentPolicy, Tape
 from ._version import __version__
 from ._world import World
@@ -90,6 +90,18 @@ def run(
     event — catching nondeterminism the tape does not control (identity-ordered
     iteration, a stray real clock/RNG, threads doing real work).
     """
+
+    scheduler = resolve_auto_horizon(
+        main,
+        scheduler,
+        seed=seed,
+        epoch=epoch,
+        gc_interval=gc_interval,
+        max_steps_per_instant=max_steps_per_instant,
+        virtual_time=virtual_time,
+        seed_randomness=seed_randomness,
+        wall_epoch=wall_epoch,
+    )
 
     def once(rerr: bool) -> RunResult:
         return _execute(
@@ -353,6 +365,44 @@ def _teardown(loop: SimLoop) -> BaseException | None:
     except BaseException as exc:
         return exc
     return None
+
+
+def resolve_auto_horizon(
+    main: Callable[..., Coroutine[Any, Any, Any]],
+    scheduler: str | SchedulerFactory | None,
+    *,
+    seed: int,
+    **probe_kwargs: Any,
+) -> str | SchedulerFactory | None:
+    """Resolve a ``pct:auto`` request to a concrete ``pct:d=D,k=K`` spec by
+    measuring the step count of one probe run (under random walk). This kills
+    the hand-tuned horizon: PCT's default ``k=4096`` is far larger than a small
+    test's step count, so its change points land past the run's end and never
+    fire — degrading PCT to a fixed priority schedule.
+
+    The returned descriptor is concrete and picklable, so it flows through the
+    multiprocess explorer and is recorded for exact replay.
+    """
+    depth = auto_pct_depth(scheduler)
+    if depth is None:
+        return scheduler
+    probe = _execute(
+        main,
+        tape=Tape.generate(seed),
+        seed=seed,
+        raise_on_error=False,
+        on_unhandled="record",
+        watchdog=None,
+        scheduler="random",
+        epoch=probe_kwargs.get("epoch", 0.0),
+        gc_interval=probe_kwargs.get("gc_interval", 1009),
+        max_steps_per_instant=probe_kwargs.get("max_steps_per_instant", 1_000_000),
+        virtual_time=probe_kwargs.get("virtual_time", False),
+        seed_randomness=probe_kwargs.get("seed_randomness", False),
+        wall_epoch=probe_kwargs.get("wall_epoch", DEFAULT_WALL_EPOCH),
+    )
+    steps = sum(1 for event in probe.log.events if event.get("kind") == "step")
+    return f"pct:d={depth},k={max(1, steps)}"
 
 
 def _nondeterminism_error(

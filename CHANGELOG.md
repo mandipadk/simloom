@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase H (1/4) — PCT auto-horizon.** `scheduler="pct:auto"` measures the
+  scheduling horizon `k` from a probe run instead of the broken `k=4096`
+  default (whose change points land past a small test's end and never fire,
+  degrading PCT to a fixed priority schedule). pct:auto finds the
+  ordering/starvation bugs the default misses; the resolved descriptor is
+  concrete and replayable.
 - **Phase G (1/2) — the determinism boundary.** Opt-in `virtual_time=True`
   redirects `time.time`/`monotonic`/`perf_counter` (+`_ns`) to the virtual
   clock; `seed_randomness=True` seeds the global `random`, `os.urandom`,

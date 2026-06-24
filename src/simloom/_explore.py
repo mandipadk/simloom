@@ -14,8 +14,8 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
-from ._run import RunResult, run
-from ._sched import SchedulerFactory
+from ._run import RunResult, resolve_auto_horizon, run
+from ._sched import SchedulerFactory, auto_pct_depth
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +64,15 @@ def explore(
     """Run ``main`` under ``runs`` fresh seeds and report the failures."""
     if runs < 1:
         raise ValueError("runs must be >= 1")
+    # Resolve `pct:auto` once for the whole campaign (probe the start seed),
+    # so every seed shares one measured horizon and no seed re-probes.
+    if auto_pct_depth(scheduler) is not None:
+        probe_keys = {
+            "epoch", "gc_interval", "max_steps_per_instant",
+            "virtual_time", "seed_randomness", "wall_epoch",
+        }
+        probe_kwargs = {k: v for k, v in run_kwargs.items() if k in probe_keys}
+        scheduler = resolve_auto_horizon(main, scheduler, seed=start_seed, **probe_kwargs)
     seeds = range(start_seed, start_seed + runs)
     if processes > 1:
         return _explore_pool(main, seeds, stop_on_failure, processes, scheduler, run_kwargs)

@@ -126,11 +126,31 @@ class PCT:
         return _PCT(loop, self.depth, self.horizon, self.descriptor)
 
 
+def auto_pct_depth(spec: str | SchedulerFactory | None) -> int | None:
+    """If ``spec`` is an auto-horizon PCT request (``"pct:auto"`` or
+    ``"pct:auto,d=2"``), return its depth; otherwise None. The horizon ``k`` is
+    then measured by a probe run (in ``run``/``explore``) instead of guessed."""
+    if not isinstance(spec, str) or not spec.startswith("pct:auto"):
+        return None
+    rest = spec[len("pct:auto") :].lstrip(",")
+    params = dict(p.split("=", 1) for p in rest.split(",") if p) if rest else {}
+    return int(params.get("d", 3))
+
+
 def resolve_scheduler(spec: str | SchedulerFactory | None) -> SchedulerFactory:
-    """Accepts "random", "pct", "pct:d=2,k=1000", a factory, or None."""
+    """Accepts "random", "pct", "pct:d=2,k=1000", a factory, or None.
+
+    ``"pct:auto"`` is NOT resolvable here — its horizon must be measured by a
+    probe run first; ``run``/``explore`` handle that before this is called.
+    """
     if spec is None or spec == "random":
         return RandomWalk()
     if isinstance(spec, str):
+        if spec.startswith("pct:auto"):
+            raise ValueError(
+                "'pct:auto' must be resolved by run()/explore() (it probes a run "
+                "to measure the horizon); it cannot be resolved standalone"
+            )
         if spec == "pct":
             return PCT()
         if spec.startswith("pct:"):
