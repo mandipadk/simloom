@@ -199,7 +199,10 @@ def _execute_systematic(
     bug in any interleaving within ``max_delays`` delays fails deterministically;
     otherwise the test passes as a bounded proof of correctness."""
     __tracebackhide__ = True
-    result = explore_systematic(fn, max_delays=max_delays, **run_kwargs)
+    # Tape-seeded randomness draws a 2**31-bound entropy value that cannot be
+    # enumerated; systematic search explores scheduling (and small fault) choices.
+    sys_kwargs = {**run_kwargs, "seed_randomness": False}
+    result = explore_systematic(fn, max_delays=max_delays, **sys_kwargs)
     if not result.failed:
         return  # exhausted with no failure (or none within budget) -> pass
 

@@ -72,6 +72,7 @@ def explore_systematic(
     *,
     max_delays: int = 2,
     max_schedules: int = 100_000,
+    max_bound: int = 256,
     stop_on_failure: bool = True,
     scheduler: str | SchedulerFactory | None = None,
     **run_kwargs: Any,
@@ -81,11 +82,19 @@ def explore_systematic(
     Returns a :class:`SystematicResult`. If it exhausts the space (``exhaustive``)
     with no failure, ``proven_correct`` is True — no interleaving within the bound
     fails. Raise ``max_delays`` to widen the proof; ``max_schedules`` caps work.
+
+    Only choices with a bound of at most ``max_bound`` are enumerated — scheduling
+    picks and small fault draws. A wide-bound draw (e.g. a tape-seeded entropy
+    value, bound 2**31) cannot be enumerated and is held at its default; seed such
+    randomness with ``simloom.sometimes``/``draw`` (small bounds) if it must be
+    explored, and keep ``seed_randomness`` off under systematic search.
     """
     if max_delays < 0:
         raise ValueError("max_delays must be >= 0")
     if max_schedules < 1:
         raise ValueError("max_schedules must be >= 1")
+    if max_bound < 2:
+        raise ValueError("max_bound must be >= 2")
 
     plan: list[Draw] = []
     failures: list[Failure] = []
@@ -122,7 +131,11 @@ def explore_systematic(
         index = len(realized) - 1
         while index >= 0:
             draw = realized[index]
-            if draw.value < draw.bound - 1 and _delays(realized[:index]) < max_delays:
+            if (
+                draw.value < draw.bound - 1
+                and draw.bound <= max_bound
+                and _delays(realized[:index]) < max_delays
+            ):
                 break
             index -= 1
         if index < 0:

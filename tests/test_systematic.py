@@ -89,6 +89,16 @@ class TestBasics:
         with pytest.raises(ValueError, match="max_schedules"):
             simloom.explore_systematic(correct_mutex, max_schedules=0)
 
+    def test_wide_bound_draws_are_held_fixed(self) -> None:
+        # seed_randomness adds a 2**31-bound entropy draw; it must NOT be
+        # enumerated (that would never terminate). It is held at its default,
+        # so the search still exhausts the scheduling space quickly.
+        result = simloom.explore_systematic(
+            correct_mutex, max_delays=3, stop_on_failure=False, seed_randomness=True
+        )
+        assert result.exhaustive
+        assert result.proven_correct
+
     def test_budget_truncates_without_claiming_exhaustive(self) -> None:
         # A tiny budget cannot exhaust, so it must not claim a proof.
         result = simloom.explore_systematic(
