@@ -34,6 +34,39 @@ class SimDeadlockError(SimloomError):
     """
 
 
+class InvariantViolation(SimloomError):
+    """A registered property (``world.always``/``eventually``/``leads_to``)
+    was violated.
+
+    ``kind`` is ``"safety"`` for an ``always`` predicate that became false,
+    or ``"liveness"`` for an ``eventually``/``leads_to`` goal that was not
+    satisfied by its deadline (or by the end of the run). ``t`` is the virtual
+    time at which the violation was detected. This is what turns simloom from
+    "finds crashes" into "finds wrong and stuck behaviour": it flows through
+    the ordinary error path, so it is found, shrunk, and replayed like any
+    other failure.
+    """
+
+    def __init__(self, label: str, kind: str, t: float, detail: str = "") -> None:
+        self.label = label
+        self.kind = kind
+        self.t = t
+        suffix = f": {detail}" if detail else ""
+        super().__init__(f"{kind} property {label!r} violated at t={t}{suffix}")
+
+
+class SimLivelockError(SimloomError):
+    """The simulated universe is busy but making no temporal progress.
+
+    Unlike :class:`SimDeadlockError` (quiescent — nothing runnable), a livelock
+    keeps scheduling callbacks forever at a single virtual instant: a hot
+    ``while True`` that only ever ``await``\\ s a zero-delay sleep, or two tasks
+    that re-arm each other with ``call_soon``. The virtual clock never advances,
+    so no real work is ever done. Caught by a bound on consecutive steps that do
+    not advance the clock.
+    """
+
+
 class TapeMisalignmentError(SimloomError):
     """A replayed tape could not satisfy the draw the program asked for.
 

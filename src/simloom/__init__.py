@@ -12,7 +12,9 @@ faults) and the explorer arrive in later phases — see docs/plan.md.
 from ._buggify import draw, reached, sometimes
 from ._errors import (
     EscapedSimulationError,
+    InvariantViolation,
     SimDeadlockError,
+    SimLivelockError,
     SimloomError,
     TapeMisalignmentError,
     UnhandledExceptionError,
@@ -20,6 +22,7 @@ from ._errors import (
 from ._eventlog import EVENT_LOG_FORMAT_VERSION, EventLog
 from ._explore import Exploration, Failure, explore
 from ._loop import SimLoop
+from ._monitors import always, eventually, leads_to
 from ._net import SimNetwork, SimServer, SimTransport
 from ._run import RunResult, replay, run
 from ._sched import PCT, RandomWalk
@@ -39,6 +42,7 @@ __all__ = [
     "Exploration",
     "Failure",
     "Host",
+    "InvariantViolation",
     "MisalignmentPolicy",
     "RandomWalk",
     "RunResult",
@@ -46,6 +50,7 @@ __all__ = [
     "ShrinkResult",
     "SimDeadlockError",
     "SimDisk",
+    "SimLivelockError",
     "SimLoop",
     "SimNetwork",
     "SimServer",
@@ -57,8 +62,11 @@ __all__ = [
     "UnhandledExceptionError",
     "World",
     "__version__",
+    "always",
     "draw",
+    "eventually",
     "explore",
+    "leads_to",
     "reached",
     "replay",
     "run",

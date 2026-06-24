@@ -23,6 +23,17 @@ def _sim_loop() -> SimLoop | None:
     return loop if isinstance(loop, SimLoop) else None
 
 
+def _forbid_in_monitor(loop: SimLoop, who: str) -> None:
+    # A monitor predicate is evaluated synchronously between steps; drawing
+    # from the tape there would inject nondeterminism outside the step model
+    # and break the single-source-of-nondeterminism contract (D3).
+    if loop._evaluating_monitors:
+        raise RuntimeError(
+            f"simloom.{who}() cannot be called from inside a property monitor "
+            f"predicate — predicates must be pure and must not draw from the tape"
+        )
+
+
 def sometimes(label: str, percent: int = 25) -> bool:
     """True with roughly ``percent`` probability inside a simulation;
     always False outside one (safe to leave in production code)."""
@@ -31,6 +42,7 @@ def sometimes(label: str, percent: int = 25) -> bool:
     loop = _sim_loop()
     if loop is None:
         return False
+    _forbid_in_monitor(loop, "sometimes")
     fired = loop.tape.draw(f"buggify.{label}", 100) < percent
     if fired:
         loop.record_coverage(label)
@@ -48,6 +60,7 @@ def draw(label: str, bound: int) -> int:
     loop = _sim_loop()
     if loop is None:
         raise RuntimeError("simloom.draw() requires a running simulation")
+    _forbid_in_monitor(loop, "draw")
     return loop.tape.draw(label, bound)
 
 

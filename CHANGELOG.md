@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Phase F — property monitors (oracles).** `world.always` / `world.eventually`
+  / `world.leads_to` (and module-level `simloom.always`/`eventually`/`leads_to`)
+  assert safety and liveness properties over the deterministic step sequence;
+  `world.assert_converged` checks replica equality. A new livelock oracle
+  (`SimLivelockError`) catches busy-but-stuck spins the deadlock oracle cannot
+  see. Violations surface as `InvariantViolation` and are found/shrunk/replayed
+  like any failure. Passing monitors are zero-perturbation (byte-identical
+  digest); liveness deadlines fire at exactly their virtual time and never mask
+  a `SimDeadlockError`. This turns simloom from "finds crashes" into "finds
+  wrong and stuck behaviour."
+
 ## [0.1.0] - 2026-06-13
 
 First public release. The deterministic core, simulated world, fault matrix,

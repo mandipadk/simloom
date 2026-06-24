@@ -67,6 +67,7 @@ float seconds). Kind-specific fields:
 | `unhandled_exception` | `error` | an exception type reached the loop's handler |
 | `deadlock` | `pending` | quiescence with the listed tasks still waiting |
 | `escape` | `api` | the program touched a real-world API |
+| `invariant` | `label`, `category` | a registered property was violated; `category` is `safety` (`always`), `liveness` (`eventually`/`leads_to`), or `convergence` |
 | `net_listen` | `host`, `port` | a simulated server started listening |
 | `net_connect` | `host`, `port` | a simulated connection was established |
 | `host_crash` | `host` | a simulated host lost power |
@@ -85,6 +86,8 @@ program under test passes to `simloom.draw`; and under the PCT scheduler,
 `pct.prio` (bound 1024, one per scheduling entity) and `pct.change` (bound =
 horizon, d-1 of them). The header records which scheduler produced the run;
 replaying under a different one misaligns loudly.
+
+Property monitors (`always`/`eventually`/`leads_to`) add **no** tape draws and, while passing, emit **no** events — they are evaluated between steps. A run whose monitors all pass has a digest byte-identical to the same run with no monitors. Only a violation emits an `invariant` event.
 
 ### Digest
 

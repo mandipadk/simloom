@@ -37,8 +37,14 @@ from contextvars import Context
 from typing import Any, NoReturn, Protocol, TypeVar, TypeVarTuple, cast
 
 from ._context import current_host
-from ._errors import EscapedSimulationError, SimDeadlockError
+from ._errors import (
+    EscapedSimulationError,
+    InvariantViolation,
+    SimDeadlockError,
+    SimLivelockError,
+)
 from ._eventlog import EventLog
+from ._monitors import MonitorSet
 from ._sched import SchedulerFactory, resolve_scheduler
 from ._tape import Tape
 
@@ -107,6 +113,7 @@ class SimLoop(asyncio.AbstractEventLoop):
         epoch: float = 0.0,
         gc_interval: int = 1009,
         scheduler: str | SchedulerFactory | None = None,
+        max_steps_per_instant: int = 1_000_000,
     ) -> None:
         self._tape = tape
         self._scheduler = resolve_scheduler(scheduler)(self)
@@ -152,6 +159,22 @@ class SimLoop(asyncio.AbstractEventLoop):
         self._asyncgens_shutdown_called = False
         #: Buggify/reached counters; surfaced as RunResult.coverage.
         self.coverage: dict[str, int] = {}
+        # Property monitors (Phase F). Empty by default, so a run with no
+        # registered properties is byte-identical to a pre-Phase-F run: the
+        # step/clock-jump hooks below all short-circuit on `_monitors.empty`.
+        self._monitors = MonitorSet()
+        self._evaluating_monitors = False
+        # Monitors are checked only during in-sim steps, never during teardown:
+        # teardown interrupts tasks mid-flight (a violating state may persist),
+        # and re-detecting the violation there would abort cleanup and leak the
+        # interrupted coroutines. Set False by _teardown.
+        self._monitoring_enabled = True
+        # Livelock detection: a bound on consecutive steps that do not advance
+        # the virtual clock (a hot spin at one instant). The deadlock oracle
+        # catches quiescence; this catches busy-but-stuck.
+        self._max_steps_per_instant = max_steps_per_instant
+        self._instant_time = self._now
+        self._instant_steps = 0
 
     # ------------------------------------------------------------------
     # introspection
@@ -289,8 +312,32 @@ class SimLoop(asyncio.AbstractEventLoop):
 
         if not self._ready:
             if not self._scheduled:
+                # Quiescent: deadlock takes precedence over any pending liveness
+                # deadline. The system can no longer make progress at all, so a
+                # monitor timer must not mask it (the monitors register no real
+                # timers, precisely so this stays detectable).
                 self._report_deadlock()
+            deadline = (
+                None
+                if (self._monitors.empty or not self._monitoring_enabled)
+                else self._monitors.next_deadline()
+            )
+            if deadline is not None and deadline <= self._now:
+                # A deadline already reached (all same-instant events have run)
+                # and still armed: fail here. No coroutine ran since the last
+                # step check, so the predicate cannot have changed.
+                self._check_due()
+                return
             target = self._scheduled[0][0]
+            if deadline is not None and deadline < target:
+                # The deadline expires strictly before the next event would run;
+                # advance to it and fail there (exact: nothing can change the
+                # predicate in the gap). Inclusive `within`: a deadline equal to
+                # an event time lets the event run first (handled by the branch
+                # above on the next iteration).
+                self._now = deadline
+                self._check_due()
+                return
             if target > self._now:
                 self._now = target
                 self._log.emit("clock_jump", t=self._now)
@@ -318,9 +365,69 @@ class SimLoop(asyncio.AbstractEventLoop):
             ran=describe_callback(_handle_callback(handle)),
         )
         self._step_seq += 1
+        self._detect_livelock()
         if self._gc_interval and self._step_seq % self._gc_interval == 0:
             self._collect_garbage()
         handle._run()
+        if self._monitoring_enabled and not self._monitors.empty:
+            self._check_step()
+
+    def _detect_livelock(self) -> None:
+        if self._now == self._instant_time:
+            self._instant_steps += 1
+        else:
+            self._instant_time = self._now
+            self._instant_steps = 1
+        if self._instant_steps > self._max_steps_per_instant:
+            raise SimLivelockError(
+                f"livelock: {self._instant_steps} consecutive steps at virtual "
+                f"time t={self._now} without the clock advancing — the system is "
+                f"busy but making no temporal progress (raise max_steps_per_instant "
+                f"if this is legitimate)"
+            )
+
+    # ------------------------------------------------------------------
+    # property monitors (Phase F)
+    # ------------------------------------------------------------------
+
+    def _emit_and_raise(self, violation: InvariantViolation) -> None:
+        # The verdict must be in the event log (hence the digest) before it
+        # propagates, so a failing run's universe is distinguishable on replay.
+        # NB: the event-kind is "invariant"; the property's own kind
+        # (safety/liveness/convergence) goes in a distinct field.
+        self._log.emit("invariant", t=violation.t, label=violation.label, category=violation.kind)
+        raise violation
+
+    def _check_step(self) -> None:
+        self._evaluating_monitors = True
+        try:
+            violation = self._monitors.after_step(self._now)
+        finally:
+            self._evaluating_monitors = False
+        if violation is not None:
+            self._emit_and_raise(violation)
+
+    def _check_due(self) -> None:
+        self._evaluating_monitors = True
+        try:
+            violation = self._monitors.fire_due(self._now)
+        finally:
+            self._evaluating_monitors = False
+        if violation is not None:
+            self._emit_and_raise(violation)
+
+    def finalize_monitors(self) -> None:
+        """Called once after the main coroutine returns: a liveness goal never
+        satisfied during the run is a violation."""
+        if self._monitors.empty:
+            return
+        self._evaluating_monitors = True
+        try:
+            violation = self._monitors.finalize(self._now)
+        finally:
+            self._evaluating_monitors = False
+        if violation is not None:
+            self._emit_and_raise(violation)
 
     def _collect_garbage(self) -> None:
         # The collected-object count is process-global state (it includes

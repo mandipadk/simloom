@@ -64,6 +64,7 @@ def run(
     on_unhandled: Literal["raise", "record"] = "raise",
     watchdog: float | None = None,
     scheduler: str | SchedulerFactory | None = None,
+    max_steps_per_instant: int = 1_000_000,
 ) -> RunResult:
     """Run ``main()`` in a fresh simulated universe generated from ``seed``.
 
@@ -85,6 +86,7 @@ def run(
         on_unhandled=on_unhandled,
         watchdog=watchdog,
         scheduler=scheduler,
+        max_steps_per_instant=max_steps_per_instant,
     )
 
 
@@ -101,6 +103,7 @@ def replay(
     on_unhandled: Literal["raise", "record"] = "raise",
     watchdog: float | None = None,
     scheduler: str | SchedulerFactory | None = None,
+    max_steps_per_instant: int = 1_000_000,
 ) -> RunResult:
     """Re-execute ``main()`` against a recorded universe.
 
@@ -120,6 +123,7 @@ def replay(
         on_unhandled=on_unhandled,
         watchdog=watchdog,
         scheduler=scheduler,
+        max_steps_per_instant=max_steps_per_instant,
     )
 
 
@@ -134,6 +138,7 @@ def _execute(
     on_unhandled: Literal["raise", "record"],
     watchdog: float | None,
     scheduler: str | SchedulerFactory | None = None,
+    max_steps_per_instant: int = 1_000_000,
 ) -> RunResult:
     if asyncio.iscoroutine(main):
         raise TypeError(
@@ -149,7 +154,13 @@ def _execute(
         )
 
     factory = resolve_scheduler(scheduler)
-    loop = SimLoop(tape, epoch=epoch, gc_interval=gc_interval, scheduler=factory)
+    loop = SimLoop(
+        tape,
+        epoch=epoch,
+        gc_interval=gc_interval,
+        scheduler=factory,
+        max_steps_per_instant=max_steps_per_instant,
+    )
     world = World(loop) if _wants_world(main) else None
     log = loop.log
     log.metadata.update(
@@ -175,6 +186,9 @@ def _execute(
         try:
             coro = main(world) if world is not None else main()
             value = loop.run_until_complete(coro)
+            # A liveness goal never satisfied during the run is a violation —
+            # checked after the main coroutine returns, before teardown.
+            loop.finalize_monitors()
         except (KeyboardInterrupt, SystemExit):
             raise
         except BaseException as exc:
@@ -240,6 +254,10 @@ def _teardown(loop: SimLoop) -> BaseException | None:
     decide whether it outranks the main outcome.
     """
     try:
+        # Monitors are off during teardown: cancellation interrupts tasks
+        # mid-flight (a violating state may persist), and re-checking would
+        # abort cleanup and leak the interrupted coroutines.
+        loop._monitoring_enabled = False
         crashed_ids = set(loop._crashed_ids)
         pending = sorted(
             (t for t in asyncio.all_tasks(loop) if not t.done() and id(t) not in crashed_ids),

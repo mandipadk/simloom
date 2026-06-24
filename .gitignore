@@ -20,3 +20,6 @@ BRIEF.md
 
 # OS
 .DS_Store
+
+# Local pre-publication upstream bug drafts — never ship in the package/repo
+reports/

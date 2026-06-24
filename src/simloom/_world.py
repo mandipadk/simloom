@@ -23,6 +23,8 @@ from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 from ._context import current_host
+from ._errors import InvariantViolation
+from ._monitors import Predicate
 from ._net import SimNetwork
 from ._tape import Tape
 
@@ -285,3 +287,63 @@ class World:
             if remaining <= 0:
                 raise TimeoutError(f"condition not reached within {timeout} virtual seconds")
             await asyncio.sleep(min(poll, remaining))
+
+    # --- property monitors (Phase F) ----------------------------------
+
+    def always(self, label: str, predicate: Predicate) -> None:
+        """Assert a *safety* property: ``predicate()`` must hold at every
+        scheduling-step boundary for the rest of the run. The first step after
+        which it is false raises ``InvariantViolation`` (kind="safety") at the
+        exact step that broke it, with byte-identical replay.
+
+        The predicate must be pure: synchronous, no ``await``, and no tape draw
+        (no ``simloom.draw``/``sometimes``). A passing monitor perturbs nothing
+        — the event log (and digest) is identical to a run with no monitor.
+        """
+        self._loop._monitors.add_always(label, predicate)
+
+    def eventually(self, label: str, predicate: Predicate, *, within: float) -> None:
+        """Assert a *liveness* property: ``predicate()`` must become true within
+        ``within`` virtual seconds (measured from now) and before the run ends.
+        Otherwise raises ``InvariantViolation`` (kind="liveness") at exactly the
+        deadline (or at run end, if the run finishes first). If the system goes
+        quiescent before the deadline, the deadlock is reported instead — a
+        monitor never masks a genuine ``SimDeadlockError``.
+        """
+        if within <= 0:
+            raise ValueError("eventually 'within' must be > 0")
+        self._loop._monitors.add_eventually(label, predicate, self._loop.time() + within)
+
+    def leads_to(
+        self, label: str, trigger: Predicate, response: Predicate, *, within: float
+    ) -> None:
+        """Assert a *response* property: whenever ``trigger()`` holds,
+        ``response()`` must hold within ``within`` virtual seconds. Each time
+        the trigger opens an obligation, the response must discharge it before
+        the deadline, else ``InvariantViolation`` (kind="liveness")."""
+        self._loop._monitors.add_leads_to(label, trigger, response, within)
+
+    def assert_converged(
+        self,
+        hosts: list[Host],
+        *,
+        key: Callable[[Host], Any],
+        label: str = "convergence",
+    ) -> None:
+        """Assert that every host agrees on ``key(host)`` *right now* — the
+        replica-equality invariant (e.g. ``key=lambda h: h.disk.read("log")``).
+        Raises ``InvariantViolation`` (kind="convergence") naming the divergent
+        hosts. Fewer than two hosts trivially converge.
+        """
+        if len(hosts) < 2:
+            return
+        values = [(h.name, key(h)) for h in hosts]
+        expected = values[0][1]
+        divergent = [name for name, v in values if v != expected]
+        if divergent:
+            raise InvariantViolation(
+                label,
+                "convergence",
+                self._loop.time(),
+                f"hosts {divergent} disagree with {values[0][0]!r}",
+            )

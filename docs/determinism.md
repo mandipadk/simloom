@@ -2,11 +2,12 @@
 
 This document is the honest boundary of the simulation. It will always state
 exactly what is deterministic, what escapes, and what we detect versus what
-we merely document. Status: **Phase C** — the deterministic loop, tape,
+we merely document. Status: **Phase F** — the deterministic loop, tape,
 simulated world, the fault matrix (partitions, asymmetric blocks, resets,
 crashes with torn writes, latency/loss), buggify, and the Phase D explorer
-(random walk + PCT, serial or multiprocess), tape shrinker, and the pytest
-plugin (`@simloom.test`) exist.
+(random walk + PCT, serial or multiprocess), tape shrinker, the pytest plugin
+(`@simloom.test`), and the **property monitors** (`always`/`eventually`/
+`leads_to`, the livelock oracle, convergence) exist.
 
 Explorer/shrinker notes: PCT scheduling draws its priorities and change
 points from the tape, so PCT universes replay and shrink like any other.
@@ -113,6 +114,27 @@ honestly:
   task wakeups are crash-filtered today.
 - ``host.disk`` is an explicit API. Real file I/O (``open()``) bypasses the
   simulation undetectably and is not crash-consistent.
+
+## Property monitors (Phase F)
+
+`world.always(label, pred)` / `world.eventually(label, pred, within=)` /
+`world.leads_to(label, trigger, response, within=)` (also available as module-level
+`simloom.always`/`eventually`/`leads_to`) assert safety and liveness properties
+over the deterministic step sequence:
+
+- Predicates are **pure** `Callable[[], bool]`: synchronous, no `await`, and no
+  tape draw (`simloom.draw`/`sometimes` raise if called from a predicate). They
+  are evaluated *between* steps, so they never perturb scheduling.
+- A **passing** monitor is zero-perturbation: the event log (and digest) is
+  byte-identical to a run with no monitor. Only a violation emits an `invariant`
+  event and stops the run (as an `InvariantViolation`, which is found, shrunk,
+  and replayed like any other failure).
+- A liveness deadline fires at *exactly* its virtual time; a monitor never masks
+  a genuine `SimDeadlockError` (quiescence is reported in preference to a pending
+  deadline). An `eventually` goal unmet when the run ends is a violation.
+- A separate **livelock** detector (`SimLivelockError`) catches a busy spin that
+  never advances the virtual clock (configurable via `max_steps_per_instant`),
+  which the quiescence-based deadlock oracle structurally cannot see.
 
 ## What escapes — detected
 
