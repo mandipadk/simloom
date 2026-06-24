@@ -155,13 +155,17 @@ Because the high-level asyncio ecosystem (streams, `aiohttp`, `httpx`,
 
 ## What escapes — documented, not (yet) detected
 
-- **Direct time access.** `time.time()`, `time.monotonic()`,
-  `datetime.now()` bypass the loop clock and return real wall time. Planned:
-  opt-in stdlib-time patching. Until then: anything reading the wall clock
-  sees the real world (e.g. HTTP `Date` headers built from `time.time()`).
-- **`random` in user code.** The global `random` module is not seeded by the
-  tape (planned as a default-on convenience in the pytest plugin). Seed your
-  own RNGs, or results will vary while *scheduling* stays deterministic.
+- **Direct time access.** `time.time()`/`monotonic()`/`perf_counter()` (and
+  `_ns` variants) are redirected to the virtual clock when a run passes
+  `virtual_time=True` (default on under `@simloom.test`). Residual escape:
+  a local alias bound before the patch (`from time import monotonic as _m`)
+  and the C-accelerated `datetime.now()` are not redirected — a documented
+  gap until a module-walking patcher lands.
+- **`random` in user code.** With `seed_randomness=True` (default on under
+  `@simloom.test`) the global `random`, `os.urandom`, `random._urandom`
+  (so `secrets`/`SystemRandom`), and `uuid.uuid4` are seeded from one tape
+  draw (`entropy.seed`) at run start, so library jitter replays. A
+  user-supplied `Random()` instance is still theirs to seed.
 - **Blocking calls.** `time.sleep()`, blocking file I/O, `requests`, C
   extensions doing their own I/O (`psycopg2`, `grpc`'s C core): these block
   the loop thread for real and exit the simulation invisibly. Cooperative

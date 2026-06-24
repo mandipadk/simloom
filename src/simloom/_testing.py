@@ -44,6 +44,8 @@ def test(
     start_seed: int = 0,
     shrink_budget: int = 1500,
     require_coverage: Sequence[str] = (),
+    virtual_time: bool = True,
+    seed_randomness: bool = True,
     **run_kwargs: Any,
 ) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Callable[..., None]]:
     """Turn an async test into a seed-exploring simulation test.
@@ -51,7 +53,14 @@ def test(
     ``require_coverage`` lists buggify/reached labels that must be hit
     somewhere in the explored corpus — the "sometimes assertion" that
     catches fault-handling code the torture never actually exercised.
+
+    ``virtual_time`` and ``seed_randomness`` default to True here (unlike the
+    lower-level ``run``/``replay``): a test wants full determinism, so the wall
+    clock (``time.time``/``monotonic``) and the stdlib RNG (``random``,
+    ``os.urandom``, ``uuid4``) are tape-driven by default. Pass False to opt out.
     """
+    run_kwargs.setdefault("virtual_time", virtual_time)
+    run_kwargs.setdefault("seed_randomness", seed_randomness)
 
     def decorate(fn: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., None]:
         def wrapper(simloom_settings: Settings) -> None:

@@ -81,8 +81,9 @@ float seconds). Kind-specific fields:
 Draw sites on the tape beyond `sched.pick`: `net.delay` (quantized link
 latency, bound 64) and `net.loss` (percent roll, bound 100) per written
 chunk; `disk.fate`/`disk.tear` per buffered file at a host crash;
-`buggify.<label>` (bound 100) per `simloom.sometimes` call; any label the
-program under test passes to `simloom.draw`; and under the PCT scheduler,
+`buggify.<label>` (bound 100) per `simloom.sometimes` call; `entropy.seed`
+(one draw at run start, when `seed_randomness=True`, seeding the stdlib RNG);
+any label the program under test passes to `simloom.draw`; and under the PCT scheduler,
 `pct.prio` (bound 1024, one per scheduling entity) and `pct.change` (bound =
 horizon, d-1 of them). The header records which scheduler produced the run;
 replaying under a different one misaligns loudly.

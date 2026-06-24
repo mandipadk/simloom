@@ -23,6 +23,7 @@ from typing import Any, Literal
 from ._errors import TapeMisalignmentError, UnhandledExceptionError
 from ._eventlog import EventLog
 from ._loop import SimLoop
+from ._patches import DEFAULT_WALL_EPOCH, patched_environment
 from ._sched import SchedulerFactory, resolve_scheduler
 from ._tape import Draw, MisalignmentPolicy, Tape
 from ._version import __version__
@@ -65,6 +66,9 @@ def run(
     watchdog: float | None = None,
     scheduler: str | SchedulerFactory | None = None,
     max_steps_per_instant: int = 1_000_000,
+    virtual_time: bool = False,
+    seed_randomness: bool = False,
+    wall_epoch: float = DEFAULT_WALL_EPOCH,
 ) -> RunResult:
     """Run ``main()`` in a fresh simulated universe generated from ``seed``.
 
@@ -87,6 +91,9 @@ def run(
         watchdog=watchdog,
         scheduler=scheduler,
         max_steps_per_instant=max_steps_per_instant,
+        virtual_time=virtual_time,
+        seed_randomness=seed_randomness,
+        wall_epoch=wall_epoch,
     )
 
 
@@ -104,6 +111,9 @@ def replay(
     watchdog: float | None = None,
     scheduler: str | SchedulerFactory | None = None,
     max_steps_per_instant: int = 1_000_000,
+    virtual_time: bool = False,
+    seed_randomness: bool = False,
+    wall_epoch: float = DEFAULT_WALL_EPOCH,
 ) -> RunResult:
     """Re-execute ``main()`` against a recorded universe.
 
@@ -124,6 +134,9 @@ def replay(
         watchdog=watchdog,
         scheduler=scheduler,
         max_steps_per_instant=max_steps_per_instant,
+        virtual_time=virtual_time,
+        seed_randomness=seed_randomness,
+        wall_epoch=wall_epoch,
     )
 
 
@@ -139,6 +152,9 @@ def _execute(
     watchdog: float | None,
     scheduler: str | SchedulerFactory | None = None,
     max_steps_per_instant: int = 1_000_000,
+    virtual_time: bool = False,
+    seed_randomness: bool = False,
+    wall_epoch: float = DEFAULT_WALL_EPOCH,
 ) -> RunResult:
     if asyncio.iscoroutine(main):
         raise TypeError(
@@ -171,6 +187,8 @@ def _execute(
             "seed": seed,
             "epoch": epoch,
             "scheduler": loop._scheduler.descriptor,
+            "virtual_time": virtual_time,
+            "seed_randomness": seed_randomness,
             "hash_randomization_pinned": _hash_randomization_pinned(),
         }
     )
@@ -182,6 +200,17 @@ def _execute(
     outcome: Literal["ok", "error"] = "ok"
     value: Any = None
     error: BaseException | None = None
+    # Virtual clock + tape-seeded randomness are installed for the whole run
+    # (including teardown, so a finally block that reads the clock stays
+    # deterministic) and always restored below. __enter__ draws the entropy
+    # seed, so it is the run's first tape draw.
+    env = patched_environment(
+        loop,
+        virtual_time=virtual_time,
+        seed_randomness=seed_randomness,
+        wall_epoch=wall_epoch,
+    )
+    env.__enter__()
     try:
         try:
             coro = main(world) if world is not None else main()
@@ -227,6 +256,7 @@ def _execute(
             error=type(error).__name__ if error is not None else None,
         )
     finally:
+        env.__exit__(None, None, None)  # restore real time/random before close
         if watchdog is not None:
             faulthandler.cancel_dump_traceback_later()
         asyncio.set_event_loop(None)

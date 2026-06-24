@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase G (1/2) — the determinism boundary.** Opt-in `virtual_time=True`
+  redirects `time.time`/`monotonic`/`perf_counter` (+`_ns`) to the virtual
+  clock; `seed_randomness=True` seeds the global `random`, `os.urandom`,
+  `secrets`/`SystemRandom`, and `uuid.uuid4` from one tape draw. Both default
+  ON under `@simloom.test` and are always restored (even on a crashed run).
+  An unmodified asyncio library that reads the clock and rolls randomness now
+  replays byte-for-byte.
 - **Phase F — property monitors (oracles).** `world.always` / `world.eventually`
   / `world.leads_to` (and module-level `simloom.always`/`eventually`/`leads_to`)
   assert safety and liveness properties over the deterministic step sequence;
