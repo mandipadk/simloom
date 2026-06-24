@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase I (4/5) — per-link / per-node shaping.** `world.net.set_link_latency`
+  and `set_link_loss` shape a single directional link (real links are
+  asymmetric); `clog_node_out` / `clog_node_in` shape a node's whole egress /
+  ingress. Precedence: explicit link > node egress > node ingress > global, and
+  the no-override path is byte-identical (the determinism torture is unchanged).
 - **Phase I (3/5) — datagram (UDP) transport.** `loop.create_datagram_endpoint`
   is now simulated: `SimDatagramTransport` delivers in order and exactly once by
   default, but `world.net.set_datagram_loss/duplication/reorder(percent)` inject

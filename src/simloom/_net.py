@@ -165,7 +165,9 @@ class SimTransport(asyncio.Transport):
             # the link heals; dropping mid-stream bytes would corrupt.
             self._held.append(item)
             return
-        arrival = self._loop.time() + self._network._draw_delay()
+        arrival = self._loop.time() + self._network._draw_delay(
+            _owner_name(self.owner), _owner_name(peer.owner)
+        )
         arrival = max(arrival, peer._last_arrival)
         peer._last_arrival = arrival
         peer._pending.append(item)
@@ -179,7 +181,9 @@ class SimTransport(asyncio.Transport):
             _owner_name(self.owner), _owner_name(peer.owner)
         ):
             item = self._held.popleft()
-            arrival = self._loop.time() + self._network._draw_delay()
+            arrival = self._loop.time() + self._network._draw_delay(
+                _owner_name(self.owner), _owner_name(peer.owner)
+            )
             arrival = max(arrival, peer._last_arrival)
             peer._last_arrival = arrival
             peer._pending.append(item)
@@ -335,9 +339,7 @@ class SimDatagramTransport(asyncio.DatagramTransport):
             return
         dst = addr if addr is not None else self._remote_addr
         if dst is None:
-            raise ValueError(
-                "sendto needs a destination address (or a connected remote_addr)"
-            )
+            raise ValueError("sendto needs a destination address (or a connected remote_addr)")
         ip = dst[0] if _looks_like_ip(dst[0]) else self._network.dns.resolve(dst[0])
         self._network._route_datagram(self, (ip, int(dst[1])), bytes(data))
 
@@ -491,6 +493,14 @@ class SimNetwork:
         self._min_delay = 0.0005
         self._max_delay = 0.020
         self._loss_percent = 0
+        #: Per-link (directional src -> dst) and per-node shaping overrides.
+        #: Precedence: explicit link > egress (node out) > ingress (node in) > global.
+        self._link_latency: dict[tuple[str, str], tuple[float, float]] = {}
+        self._link_loss: dict[tuple[str, str], int] = {}
+        self._node_out_latency: dict[str, tuple[float, float]] = {}
+        self._node_out_loss: dict[str, int] = {}
+        self._node_in_latency: dict[str, tuple[float, float]] = {}
+        self._node_in_loss: dict[str, int] = {}
         #: Datagram endpoints by bound address, and their crash-ordered registry.
         self._datagram_endpoints: dict[tuple[str, int], SimDatagramTransport] = {}
         self._datagram_seq = 0
@@ -542,6 +552,78 @@ class SimNetwork:
         if not 0 <= percent <= 100:
             raise ValueError("reorder percent must be in [0, 100]")
         self._udp_reorder = percent
+
+    # --- per-link / per-node shaping (asymmetric, directional) ---
+
+    def set_link_latency(self, src: Any, dst: Any, min_seconds: float, max_seconds: float) -> None:
+        """Latency for the directional link ``src -> dst`` only (overrides the
+        global latency for that direction). The reverse direction is untouched —
+        real links are asymmetric."""
+        if not 0 <= min_seconds <= max_seconds:
+            raise ValueError("latency range must satisfy 0 <= min <= max")
+        self._link_latency[(_owner_name(src), _owner_name(dst))] = (min_seconds, max_seconds)
+
+    def set_link_loss(self, src: Any, dst: Any, percent: int) -> None:
+        """Loss for the directional link ``src -> dst`` only."""
+        if not 0 <= percent <= 100:
+            raise ValueError("loss percent must be in [0, 100]")
+        self._link_loss[(_owner_name(src), _owner_name(dst))] = percent
+
+    def clog_node_out(
+        self,
+        node: Any,
+        *,
+        latency: tuple[float, float] | None = None,
+        loss: int | None = None,
+    ) -> None:
+        """Shape everything leaving ``node`` (its egress) — slow uplink or a
+        congested sender, applied to every directional link out of it."""
+        name = _owner_name(node)
+        if latency is not None:
+            if not 0 <= latency[0] <= latency[1]:
+                raise ValueError("latency range must satisfy 0 <= min <= max")
+            self._node_out_latency[name] = latency
+        if loss is not None:
+            if not 0 <= loss <= 100:
+                raise ValueError("loss percent must be in [0, 100]")
+            self._node_out_loss[name] = loss
+
+    def clog_node_in(
+        self,
+        node: Any,
+        *,
+        latency: tuple[float, float] | None = None,
+        loss: int | None = None,
+    ) -> None:
+        """Shape everything arriving at ``node`` (its ingress) — a slow downlink
+        or an overloaded receiver, applied to every directional link into it."""
+        name = _owner_name(node)
+        if latency is not None:
+            if not 0 <= latency[0] <= latency[1]:
+                raise ValueError("latency range must satisfy 0 <= min <= max")
+            self._node_in_latency[name] = latency
+        if loss is not None:
+            if not 0 <= loss <= 100:
+                raise ValueError("loss percent must be in [0, 100]")
+            self._node_in_loss[name] = loss
+
+    def _effective_latency(self, src: str, dst: str) -> tuple[float, float]:
+        if (src, dst) in self._link_latency:
+            return self._link_latency[(src, dst)]
+        if src in self._node_out_latency:
+            return self._node_out_latency[src]
+        if dst in self._node_in_latency:
+            return self._node_in_latency[dst]
+        return (self._min_delay, self._max_delay)
+
+    def _effective_loss(self, src: str, dst: str) -> int:
+        if (src, dst) in self._link_loss:
+            return self._link_loss[(src, dst)]
+        if src in self._node_out_loss:
+            return self._node_out_loss[src]
+        if dst in self._node_in_loss:
+            return self._node_in_loss[dst]
+        return self._loss_percent
 
     # --- the fault matrix (all observable effects, never corruption) ---
 
@@ -600,14 +682,16 @@ class SimNetwork:
 
     # --- tape-driven decisions ---
 
-    def _draw_delay(self) -> float:
-        span = self._max_delay - self._min_delay
+    def _draw_delay(self, src: str, dst: str) -> float:
+        lo, hi = self._effective_latency(src, dst)
+        span = hi - lo
         step = self._loop.tape.draw(NET_DELAY, _DELAY_STEPS)
-        delay = self._min_delay + span * (step / (_DELAY_STEPS - 1))
-        if self._loss_percent and self._loop.tape.draw(NET_LOSS, 100) < self._loss_percent:
+        delay = lo + span * (step / (_DELAY_STEPS - 1))
+        loss = self._effective_loss(src, dst)
+        if loss and self._loop.tape.draw(NET_LOSS, 100) < loss:
             # A lost segment costs roughly a retransmission round trip.
             self.chunks_delayed_by_loss += 1
-            delay += 3 * self._max_delay
+            delay += 3 * hi
         return delay
 
     def _count_send(self, size: int) -> None:
@@ -791,7 +875,9 @@ class SimNetwork:
         flow = (source._local_addr, dst)
         last = self._udp_arrival.get(flow, 0.0)
         for _ in range(copies):
-            arrival = self._loop.time() + self._draw_udp_delay()
+            arrival = self._loop.time() + self._draw_udp_delay(
+                _owner_name(source.owner), _owner_name(dest.owner)
+            )
             if self._udp_reorder and self._loop.tape.draw(UDP_REORDER, 100) < self._udp_reorder:
                 # Held back past the in-order front, so a later datagram in this
                 # flow overtakes it — and it does not advance the flow's front.
@@ -808,10 +894,11 @@ class SimNetwork:
             )
         self._udp_arrival[flow] = last
 
-    def _draw_udp_delay(self) -> float:
-        span = self._max_delay - self._min_delay
+    def _draw_udp_delay(self, src: str, dst: str) -> float:
+        lo, hi = self._effective_latency(src, dst)
+        span = hi - lo
         step = self._loop.tape.draw(UDP_DELAY, _DELAY_STEPS)
-        return self._min_delay + span * (step / (_DELAY_STEPS - 1))
+        return lo + span * (step / (_DELAY_STEPS - 1))
 
     def _forget_datagram(self, transport: SimDatagramTransport) -> None:
         for addr, value in list(self._datagram_endpoints.items()):
