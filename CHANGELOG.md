@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ON under `@simloom.test` and are always restored (even on a crashed run).
   An unmodified asyncio library that reads the clock and rolls randomness now
   replays byte-for-byte.
+- **Phase G (2/2) — per-test determinism self-check.** `run(check_determinism=
+  True)` / `@simloom.test(check_determinism=True)` / `pytest --simloom-check-
+  determinism` run a seed twice and raise `SimloomNondeterminismError` locating
+  the first diverging event if the two universes differ — catching
+  nondeterminism the tape cannot control (identity-ordered iteration, a stray
+  real clock/RNG, threads doing real work).
 - **Phase F — property monitors (oracles).** `world.always` / `world.eventually`
   / `world.leads_to` (and module-level `simloom.always`/`eventually`/`leads_to`)
   assert safety and liveness properties over the deterministic step sequence;

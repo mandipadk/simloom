@@ -16,6 +16,7 @@ from ._errors import (
     SimDeadlockError,
     SimLivelockError,
     SimloomError,
+    SimloomNondeterminismError,
     TapeMisalignmentError,
     UnhandledExceptionError,
 )
@@ -56,6 +57,7 @@ __all__ = [
     "SimServer",
     "SimTransport",
     "SimloomError",
+    "SimloomNondeterminismError",
     "SimloomTestFailure",
     "Tape",
     "TapeMisalignmentError",

@@ -115,6 +115,10 @@ honestly:
 - ``host.disk`` is an explicit API. Real file I/O (``open()``) bypasses the
   simulation undetectably and is not crash-consistent.
 
+## The determinism self-check
+
+`run(check_determinism=True)` (and `@simloom.test(check_determinism=True)`, or `pytest --simloom-check-determinism`) runs a seed twice and raises `SimloomNondeterminismError`, locating the first diverging event, if the two event logs differ. This is the standing guard that a *user's* test has not smuggled in nondeterminism the tape cannot control — identity-ordered set/dict iteration, a real clock/RNG not routed through the patches above, or threads doing real work. The clock/random patches close the common cases; the self-check catches the rest.
+
 ## Property monitors (Phase F)
 
 `world.always(label, pred)` / `world.eventually(label, pred, within=)` /

@@ -78,6 +78,18 @@ class TapeMisalignmentError(SimloomError):
     """
 
 
+class SimloomNondeterminismError(SimloomError):
+    """The same seed produced two different universes.
+
+    simloom guarantees determinism *given the tape* — but a test can smuggle in
+    nondeterminism the tape does not control: iterating a set/dict keyed by
+    object identity (address-ordered), a stray ``time.time()``/``random`` not
+    routed through simloom, or threads doing real work. The self-check
+    (``check_determinism=True``) runs a seed twice and, if the event logs
+    differ, raises this with the first diverging event located.
+    """
+
+
 class UnhandledExceptionError(SimloomError):
     """An exception reached the loop's exception handler and nothing else.
 

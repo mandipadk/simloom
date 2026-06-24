@@ -34,6 +34,7 @@ class Settings:
     tape_path: str | None = None
     artifact_dir: Path | None = None
     shrink_enabled: bool = True
+    force_check_determinism: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -46,6 +47,7 @@ def test(
     require_coverage: Sequence[str] = (),
     virtual_time: bool = True,
     seed_randomness: bool = True,
+    check_determinism: bool = False,
     **run_kwargs: Any,
 ) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Callable[..., None]]:
     """Turn an async test into a seed-exploring simulation test.
@@ -59,6 +61,9 @@ def test(
     clock (``time.time``/``monotonic``) and the stdlib RNG (``random``,
     ``os.urandom``, ``uuid4``) are tape-driven by default. Pass False to opt out.
     """
+    # virtual_time/seed_randomness are forwarded to run()/replay()/shrink() (all
+    # accept them). check_determinism is run()-only — it must NOT reach replay()
+    # (shrinking replays fixed tapes), so it is threaded separately.
     run_kwargs.setdefault("virtual_time", virtual_time)
     run_kwargs.setdefault("seed_randomness", seed_randomness)
 
@@ -73,6 +78,7 @@ def test(
                 start_seed=start_seed,
                 shrink_budget=shrink_budget,
                 require_coverage=tuple(require_coverage),
+                check_determinism=check_determinism,
                 run_kwargs=run_kwargs,
             )
 
@@ -96,9 +102,12 @@ def _execute(
     start_seed: int,
     shrink_budget: int,
     require_coverage: tuple[str, ...],
+    check_determinism: bool,
     run_kwargs: dict[str, Any],
 ) -> None:
     __tracebackhide__ = True
+    # The CLI flag forces the self-check on; it never reaches replay()/shrink().
+    check_determinism = check_determinism or settings.force_check_determinism
     if settings.tape_path is not None:
         _replay_tape_file(fn, settings.tape_path, scheduler, run_kwargs)
         return
@@ -108,6 +117,7 @@ def _execute(
             seed=settings.seed_override,
             raise_on_error=False,
             scheduler=scheduler,
+            check_determinism=check_determinism,
             **run_kwargs,
         )
         if result.outcome == "error":
@@ -125,6 +135,7 @@ def _execute(
         start_seed=start_seed,
         stop_on_failure=True,
         scheduler=scheduler,
+        check_determinism=check_determinism,
         **run_kwargs,
     )
     if not exploration.failed:

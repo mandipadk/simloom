@@ -39,6 +39,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         help="skip shrinking when a failure is found",
     )
+    group.addoption(
+        "--simloom-check-determinism",
+        action="store_true",
+        help="run each explored seed twice and fail if the two universes differ "
+        "(catches nondeterminism the tape does not control)",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -63,4 +69,5 @@ def simloom_settings(request: pytest.FixtureRequest) -> Settings:
         tape_path=config.getoption("--simloom-tape"),
         artifact_dir=Path(config.rootpath) / ".sim" / "failures",
         shrink_enabled=not config.getoption("--simloom-no-shrink"),
+        force_check_determinism=bool(config.getoption("--simloom-check-determinism")),
     )

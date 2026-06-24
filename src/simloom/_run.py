@@ -17,10 +17,14 @@ import os
 import platform
 import sys
 from collections.abc import Callable, Coroutine, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-from ._errors import TapeMisalignmentError, UnhandledExceptionError
+from ._errors import (
+    SimloomNondeterminismError,
+    TapeMisalignmentError,
+    UnhandledExceptionError,
+)
 from ._eventlog import EventLog
 from ._loop import SimLoop
 from ._patches import DEFAULT_WALL_EPOCH, patched_environment
@@ -69,6 +73,7 @@ def run(
     virtual_time: bool = False,
     seed_randomness: bool = False,
     wall_epoch: float = DEFAULT_WALL_EPOCH,
+    check_determinism: bool = False,
 ) -> RunResult:
     """Run ``main()`` in a fresh simulated universe generated from ``seed``.
 
@@ -79,7 +84,41 @@ def run(
     never ``await``: cooperative scheduling cannot preempt them and virtual
     time never advances, so the guard dumps every thread's stack to stderr
     and exits the process. It observes only; it cannot perturb the schedule.
+
+    ``check_determinism`` runs the seed twice and, if the two event logs
+    differ, raises ``SimloomNondeterminismError`` locating the first diverging
+    event — catching nondeterminism the tape does not control (identity-ordered
+    iteration, a stray real clock/RNG, threads doing real work).
     """
+
+    def once(rerr: bool) -> RunResult:
+        return _execute(
+            main,
+            tape=Tape.generate(seed),
+            seed=seed,
+            raise_on_error=rerr,
+            epoch=epoch,
+            gc_interval=gc_interval,
+            on_unhandled=on_unhandled,
+            watchdog=watchdog,
+            scheduler=scheduler,
+            max_steps_per_instant=max_steps_per_instant,
+            virtual_time=virtual_time,
+            seed_randomness=seed_randomness,
+            wall_epoch=wall_epoch,
+        )
+
+    if check_determinism:
+        first = once(False)
+        second = once(False)
+        if first.digest != second.digest:
+            error = _nondeterminism_error(seed, first, second)
+            if raise_on_error:
+                raise error
+            return replace(first, outcome="error", error=error)
+        if raise_on_error and first.error is not None:
+            raise first.error
+        return first
     return _execute(
         main,
         tape=Tape.generate(seed),
@@ -314,6 +353,26 @@ def _teardown(loop: SimLoop) -> BaseException | None:
     except BaseException as exc:
         return exc
     return None
+
+
+def _nondeterminism_error(
+    seed: int, first: RunResult, second: RunResult
+) -> SimloomNondeterminismError:
+    a = list(first.log.events)
+    b = list(second.log.events)
+    index = next(
+        (i for i, (ea, eb) in enumerate(zip(a, b, strict=False)) if ea != eb),
+        min(len(a), len(b)),  # one log is a strict prefix of the other
+    )
+    ea = a[index] if index < len(a) else None
+    eb = b[index] if index < len(b) else None
+    return SimloomNondeterminismError(
+        f"seed {seed} produced two different universes — the test is nondeterministic "
+        f"in a way the choice tape does not control (iterating a set/dict keyed by "
+        f"object identity, a stray real time.time()/random not routed through simloom, "
+        f"or threads doing real work). First divergence at event #{index}:\n"
+        f"  run A: {ea}\n  run B: {eb}"
+    )
 
 
 def _unhandled_error(loop: SimLoop) -> UnhandledExceptionError:
