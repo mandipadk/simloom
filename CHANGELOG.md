@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the first diverging event if the two universes differ — catching
   nondeterminism the tape cannot control (identity-ordered iteration, a stray
   real clock/RNG, threads doing real work).
+- **Phase G (3/3) — boundary registry + PYTHONHASHSEED auto-pin.**
+  `simloom.boundary()` is a machine-readable table of every real-world API and
+  what simloom does there (detected / simulated / patched / documented); a test
+  cross-checks it against the actual escape sites so the honesty contract cannot
+  drift. `simloom.pin_hashseed()` (and `pytest --simloom-pin-hashseed`) re-execs
+  with `PYTHONHASHSEED=0` if unpinned, so cross-process seed/tape replay is sound.
 - **Phase F — property monitors (oracles).** `world.always` / `world.eventually`
   / `world.leads_to` (and module-level `simloom.always`/`eventually`/`leads_to`)
   assert safety and liveness properties over the deterministic step sequence;

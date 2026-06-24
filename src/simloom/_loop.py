@@ -570,7 +570,7 @@ class SimLoop(asyncio.AbstractEventLoop):
     ) -> asyncio.Handle:
         if self._running and threading.current_thread() is not self._thread:
             self._escape(
-                "call_soon_threadsafe",
+                "loop.call_soon_threadsafe",
                 "a foreign thread tried to inject work into the simulation; "
                 "real threads run outside virtual time",
             )

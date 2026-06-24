@@ -9,6 +9,7 @@ detection, and the versioned event log. The simulated world (hosts, network,
 faults) and the explorer arrive in later phases — see docs/plan.md.
 """
 
+from ._boundary import BoundaryEntry, BoundaryStatus, boundary
 from ._buggify import draw, reached, sometimes
 from ._errors import (
     EscapedSimulationError,
@@ -22,6 +23,7 @@ from ._errors import (
 )
 from ._eventlog import EVENT_LOG_FORMAT_VERSION, EventLog
 from ._explore import Exploration, Failure, explore
+from ._hashseed import is_pinned, pin_hashseed
 from ._loop import SimLoop
 from ._monitors import always, eventually, leads_to
 from ._net import SimNetwork, SimServer, SimTransport
@@ -37,6 +39,8 @@ __all__ = [
     "EVENT_LOG_FORMAT_VERSION",
     "PCT",
     "TAPE_FORMAT_VERSION",
+    "BoundaryEntry",
+    "BoundaryStatus",
     "Draw",
     "EscapedSimulationError",
     "EventLog",
@@ -65,10 +69,13 @@ __all__ = [
     "World",
     "__version__",
     "always",
+    "boundary",
     "draw",
     "eventually",
     "explore",
+    "is_pinned",
     "leads_to",
+    "pin_hashseed",
     "reached",
     "replay",
     "run",

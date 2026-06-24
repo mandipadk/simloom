@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from ._run import _hash_randomization_pinned
+from ._hashseed import is_pinned, pin_hashseed
 from ._testing import Settings
 
 
@@ -45,17 +45,29 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="run each explored seed twice and fail if the two universes differ "
         "(catches nondeterminism the tape does not control)",
     )
+    group.addoption(
+        "--simloom-pin-hashseed",
+        action="store_true",
+        help="re-exec the test session with PYTHONHASHSEED=0 if it is unpinned, "
+        "so cross-process seed/tape replay is sound",
+    )
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    if not _hash_randomization_pinned() and (
+    if config.getoption("--simloom-pin-hashseed"):
+        # Re-execs (once) if unpinned; a no-op if already pinned. After re-exec
+        # the session restarts from the same argv with PYTHONHASHSEED set.
+        pin_hashseed()
+        return
+    if not is_pinned() and (
         config.getoption("--simloom-seed") is not None
         or config.getoption("--simloom-tape") is not None
     ):
         warnings.warn(
             "PYTHONHASHSEED is not pinned: a seed or tape recorded in another "
             "process may not replay if the program iterates hash-randomized "
-            "sets/dicts. Run with PYTHONHASHSEED=0.",
+            "sets/dicts. Run with PYTHONHASHSEED=0, pass --simloom-pin-hashseed, "
+            "or call simloom.pin_hashseed() in conftest.py.",
             stacklevel=1,
         )
 
