@@ -51,7 +51,7 @@ _REGISTRY: tuple[BoundaryEntry, ...] = (
     BoundaryEntry("loop.getnameinfo", _D, "real reverse DNS"),
     BoundaryEntry("loop.create_connection", _D, "real socket; simulated with a World"),
     BoundaryEntry("loop.create_server", _D, "real listener; simulated with a World"),
-    BoundaryEntry("loop.create_datagram_endpoint", _D, "datagram transports not simulated yet"),
+    BoundaryEntry("loop.create_datagram_endpoint", _D, "real UDP; simulated with a World"),
     BoundaryEntry("loop.create_unix_connection", _D, "real unix socket"),
     BoundaryEntry("loop.create_unix_server", _D, "real unix listener"),
     BoundaryEntry("loop.start_tls", _D, "TLS not simulated yet"),
@@ -82,6 +82,7 @@ _REGISTRY: tuple[BoundaryEntry, ...] = (
     BoundaryEntry("loop.time", _S, "virtual clock; jumps to the next timer"),
     BoundaryEntry("asyncio primitives", _S, "Event/Lock/Condition/Queue/Semaphore/sleep/gather"),
     BoundaryEntry("World.net", _S, "in-memory transports, DNS, latency/loss/partition faults"),
+    BoundaryEntry("World.net datagrams", _S, "UDP with real loss/reorder/duplication faults"),
     BoundaryEntry("Host.disk", _S, "honest fsync, torn/lost writes on crash"),
     # --- PATCHED: deterministic when the opt-in patches are on -----------
     BoundaryEntry("time.time", _P, "virtual_time=True -> wall_epoch + loop.time()"),

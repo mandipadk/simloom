@@ -795,7 +795,9 @@ class SimLoop(asyncio.AbstractEventLoop):
         return await self._network.create_server(*args, **kwargs)
 
     async def create_datagram_endpoint(self, *args: Any, **kwargs: Any) -> Any:
-        self._escape_network("loop.create_datagram_endpoint")
+        if self._network is None:
+            self._escape_no_world("loop.create_datagram_endpoint")
+        return await self._network.create_datagram_endpoint(*args, **kwargs)
 
     async def create_unix_connection(self, *args: Any, **kwargs: Any) -> Any:
         self._escape_network("loop.create_unix_connection")

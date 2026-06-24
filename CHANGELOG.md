@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase I (3/5) — datagram (UDP) transport.** `loop.create_datagram_endpoint`
+  is now simulated: `SimDatagramTransport` delivers in order and exactly once by
+  default, but `world.net.set_datagram_loss/duplication/reorder(percent)` inject
+  the real UDP faults — packets genuinely dropped, duplicated, or overtaken
+  (every fate a tape draw, so it replays). A naive client that assumes in-order
+  exactly-once delivery is found buggy under faults; a correct one survives.
 - **Phase I (2/5) — world-on-by-default.** A `World` is now attached for every
   run (network simulated) regardless of whether `main` takes a `world`
   parameter — killing the arity trap where `async def main():` + a network call

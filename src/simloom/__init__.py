@@ -27,7 +27,7 @@ from ._fingerprint import CorpusEntry, InterleavingCorpus, fingerprint, interlea
 from ._hashseed import is_pinned, pin_hashseed
 from ._loop import SimLoop
 from ._monitors import always, eventually, leads_to
-from ._net import SimNetwork, SimServer, SimTransport
+from ._net import SimDatagramTransport, SimNetwork, SimServer, SimTransport
 from ._run import RunResult, replay, run
 from ._sched import PCT, RandomWalk
 from ._shrink import ShrinkResult, shrink
@@ -58,6 +58,7 @@ __all__ = [
     "RunResult",
     "Settings",
     "ShrinkResult",
+    "SimDatagramTransport",
     "SimDeadlockError",
     "SimDisk",
     "SimLivelockError",

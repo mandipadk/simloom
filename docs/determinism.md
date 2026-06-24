@@ -73,8 +73,7 @@ honestly:
   honesty governs partitions: chunks sent across a partition are *held*
   (TCP retransmits until the link heals) and delivered in order on
   ``heal()`` — losing mid-stream bytes is something real TCP can't do.
-  Duplicate/reorder faults belong to datagram transports, which don't exist
-  yet.
+  Duplicate/reorder faults belong to datagram transports (below).
 - **The fault matrix** (`world.net`): `partition(a, b)` / `heal()`,
   asymmetric `block(src, dst)` / `unblock`, `reset_connections(a, b)`
   (ConnectionResetError on live connections), `set_latency`, `set_loss`.
@@ -91,6 +90,11 @@ honestly:
 - **Clock skew is deferred**: `loop.time()` is monotonic, and real skew
   bugs live in wall-clock comparisons (`time.time()`), which simloom does
   not intercept yet (see below). Skew lands with stdlib-time patching.
+- **Datagrams are real UDP.** ``create_datagram_endpoint`` is simulated: in
+  order and exactly once by default, but ``world.net.set_datagram_loss`` /
+  ``set_datagram_duplication`` / ``set_datagram_reorder`` drop, duplicate, and
+  reorder packets for real (no retransmission) — the faults a UDP protocol must
+  tolerate. Every packet's fate is a tape draw, so it replays.
 - **TLS is not simulated** — passing ``ssl=`` raises ``EscapedSimulationError``.
   Serve plain inside the sim.
 - **DNS is simulated and strict**: names are registered when a server binds

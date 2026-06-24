@@ -212,6 +212,9 @@ class Host:
         for transport in list(net._live_transports.values()):
             if transport.owner is self:
                 transport._drop_on_crash()
+        for datagram in list(net._datagram_endpoints.values()):
+            if datagram.owner is self:
+                datagram._drop_on_crash()
         for server in list(net._listeners.values()):
             if server.owner is self:
                 server.close()

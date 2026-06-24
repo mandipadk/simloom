@@ -41,6 +41,13 @@ _USE_CURRENT = object()
 NET_DELAY = "net.delay"
 NET_LOSS = "net.loss"
 
+#: Tape labels for datagram (UDP) decisions — real loss/reorder/duplication,
+#: unlike the stream model which only ever delays.
+UDP_DELAY = "udp.delay"
+UDP_LOSS = "udp.loss"
+UDP_DUP = "udp.dup"
+UDP_REORDER = "udp.reorder"
+
 #: Quantization of the latency range: draws are integers in [0, 64).
 _DELAY_STEPS = 64
 
@@ -290,6 +297,96 @@ class SimTransport(asyncio.Transport):
         return (0, 0)
 
 
+class SimDatagramTransport(asyncio.DatagramTransport):
+    """A connectionless (UDP) endpoint. Unlike :class:`SimTransport`, datagrams
+    are genuinely unreliable: the network may drop, duplicate, or reorder them —
+    the faults a UDP protocol must actually tolerate."""
+
+    def __init__(
+        self,
+        network: SimNetwork,
+        local_addr: tuple[str, int],
+        protocol: asyncio.BaseProtocol,
+        remote_addr: tuple[str, int] | None = None,
+    ) -> None:
+        super().__init__()
+        self._network = network
+        self._loop = network._loop
+        self._local_addr = local_addr
+        self._remote_addr = remote_addr
+        self._protocol = protocol
+        self._closing = False
+        self._closed = False
+        self.owner: Any = None
+        self._host_ctx = contextvars.copy_context()
+        self._extra: dict[str, Any] = {
+            "socket": FakeSocket(local_addr, remote_addr or ("0.0.0.0", 0)),
+            "sockname": local_addr,
+            "peername": remote_addr,
+        }
+
+    def _start(self) -> None:
+        ctx = contextvars.copy_context()
+        ctx.run(current_host.set, self.owner)
+        self._host_ctx = ctx
+
+    def sendto(self, data: Any, addr: Any = None) -> None:
+        if self._closing:
+            return
+        dst = addr if addr is not None else self._remote_addr
+        if dst is None:
+            raise ValueError(
+                "sendto needs a destination address (or a connected remote_addr)"
+            )
+        ip = dst[0] if _looks_like_ip(dst[0]) else self._network.dns.resolve(dst[0])
+        self._network._route_datagram(self, (ip, int(dst[1])), bytes(data))
+
+    def _deliver(self, data: bytes, src_addr: tuple[str, int]) -> None:
+        if self._closed:
+            return
+        received = getattr(self._protocol, "datagram_received", None)
+        if received is not None:
+            received(data, src_addr)
+
+    def close(self) -> None:
+        if self._closing:
+            return
+        self._closing = True
+        if self._loop.is_closed():
+            self._closed = True
+            self._network._forget_datagram(self)
+            return
+        self._loop.call_soon(self._finalize, context=self._host_ctx)
+
+    def abort(self) -> None:
+        self.close()
+
+    def _finalize(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._network._forget_datagram(self)
+        if self._protocol is not None:
+            self._protocol.connection_lost(None)
+
+    def _drop_on_crash(self) -> None:
+        self._closing = True
+        self._closed = True
+        self._network._forget_datagram(self)
+
+    def is_closing(self) -> bool:
+        return self._closing
+
+    def get_extra_info(self, name: str, default: object = None) -> Any:
+        return self._extra.get(name, default)
+
+    def get_protocol(self) -> asyncio.BaseProtocol:
+        return self._protocol
+
+    def set_protocol(self, protocol: asyncio.BaseProtocol) -> None:
+        self._protocol = protocol
+
+
 class SimServer:
     """Stand-in for asyncio.Server, returned by ``loop.create_server``."""
 
@@ -394,9 +491,21 @@ class SimNetwork:
         self._min_delay = 0.0005
         self._max_delay = 0.020
         self._loss_percent = 0
+        #: Datagram endpoints by bound address, and their crash-ordered registry.
+        self._datagram_endpoints: dict[tuple[str, int], SimDatagramTransport] = {}
+        self._datagram_seq = 0
+        #: Per-flow (src -> dst) last arrival time, for in-order delivery unless
+        #: a packet is explicitly reordered.
+        self._udp_arrival: dict[tuple[tuple[str, int], tuple[str, int]], float] = {}
+        self._udp_loss = 0
+        self._udp_dup = 0
+        self._udp_reorder = 0
         self.bytes_sent = 0
         self.chunks_sent = 0
         self.chunks_delayed_by_loss = 0
+        self.datagrams_dropped = 0
+        self.datagrams_duplicated = 0
+        self.datagrams_reordered = 0
         self._blocked: set[tuple[str, str]] = set()  # directional (src, dst)
         self._heal_waiters: asyncio.Event | None = None
 
@@ -414,6 +523,25 @@ class SimNetwork:
         if not 0 <= percent <= 100:
             raise ValueError("loss percent must be in [0, 100]")
         self._loss_percent = percent
+
+    def set_datagram_loss(self, percent: int) -> None:
+        """Fraction of datagrams the network drops outright (real UDP loss —
+        no retransmission, the packet is gone)."""
+        if not 0 <= percent <= 100:
+            raise ValueError("loss percent must be in [0, 100]")
+        self._udp_loss = percent
+
+    def set_datagram_duplication(self, percent: int) -> None:
+        """Fraction of datagrams delivered twice."""
+        if not 0 <= percent <= 100:
+            raise ValueError("duplication percent must be in [0, 100]")
+        self._udp_dup = percent
+
+    def set_datagram_reorder(self, percent: int) -> None:
+        """Fraction of datagrams held back so a later one overtakes them."""
+        if not 0 <= percent <= 100:
+            raise ValueError("reorder percent must be in [0, 100]")
+        self._udp_reorder = percent
 
     # --- the fault matrix (all observable effects, never corruption) ---
 
@@ -606,6 +734,90 @@ class SimNetwork:
         server_transport._host_ctx.run(server_protocol.connection_made, server_transport)
         client_transport._host_ctx.run(client_protocol.connection_made, client_transport)
         return (client_transport, client_protocol), (server_transport, server_protocol)
+
+    async def create_datagram_endpoint(
+        self,
+        protocol_factory: Callable[[], asyncio.BaseProtocol],
+        *,
+        local_addr: tuple[str, int] | None = None,
+        remote_addr: tuple[str, int] | None = None,
+        **kwargs: Any,
+    ) -> tuple[SimDatagramTransport, asyncio.BaseProtocol]:
+        owner = current_host.get()
+        if local_addr is not None:
+            host, port = local_addr
+            ip = host if _looks_like_ip(host) else self.dns.register(host)
+            local = (ip, int(port))
+        else:
+            local = ("10.0.0.99", self._next_client_port)
+            self._next_client_port += 1
+        if local in self._datagram_endpoints:
+            raise OSError(98, f"address already in use: {local}")
+        remote: tuple[str, int] | None = None
+        if remote_addr is not None:
+            rhost, rport = remote_addr
+            rip = rhost if _looks_like_ip(rhost) else self.dns.resolve(rhost)
+            remote = (rip, int(rport))
+
+        protocol = protocol_factory()
+        transport = SimDatagramTransport(self, local, protocol, remote_addr=remote)
+        transport.owner = owner
+        transport._start()
+        self._datagram_endpoints[local] = transport
+        self._datagram_seq += 1
+        self._loop.log.emit("net_datagram_open", t=self._loop.time(), local=list(local))
+        transport._host_ctx.run(protocol.connection_made, transport)
+        return transport, protocol
+
+    def _route_datagram(
+        self, source: SimDatagramTransport, dst: tuple[str, int], data: bytes
+    ) -> None:
+        """Apply real UDP semantics — drop / duplicate / reorder / delay — and
+        schedule delivery to the destination endpoint. Every decision is a tape
+        draw, so the whole packet fate replays."""
+        self._count_send(len(data))
+        dest = self._datagram_endpoints.get(dst)
+        if dest is None or dest._closed:
+            return  # no listener bound: the packet simply vanishes (UDP)
+        if self._is_blocked(_owner_name(source.owner), _owner_name(dest.owner)):
+            return  # partitioned: dropped, never retransmitted
+        if self._udp_loss and self._loop.tape.draw(UDP_LOSS, 100) < self._udp_loss:
+            self.datagrams_dropped += 1
+            return
+        copies = 1
+        if self._udp_dup and self._loop.tape.draw(UDP_DUP, 100) < self._udp_dup:
+            copies = 2
+            self.datagrams_duplicated += 1
+        flow = (source._local_addr, dst)
+        last = self._udp_arrival.get(flow, 0.0)
+        for _ in range(copies):
+            arrival = self._loop.time() + self._draw_udp_delay()
+            if self._udp_reorder and self._loop.tape.draw(UDP_REORDER, 100) < self._udp_reorder:
+                # Held back past the in-order front, so a later datagram in this
+                # flow overtakes it — and it does not advance the flow's front.
+                arrival = max(arrival, last) + 5 * self._max_delay
+                self.datagrams_reordered += 1
+            else:
+                # In-order by default: each datagram lands at a strictly later
+                # instant than the last (so same-instant scheduler picks cannot
+                # reorder a flow). UDP reordering is an opt-in fault, above.
+                arrival = max(arrival, last + self._min_delay)
+                last = arrival
+            self._loop.call_at(
+                arrival, dest._deliver, data, source._local_addr, context=dest._host_ctx
+            )
+        self._udp_arrival[flow] = last
+
+    def _draw_udp_delay(self) -> float:
+        span = self._max_delay - self._min_delay
+        step = self._loop.tape.draw(UDP_DELAY, _DELAY_STEPS)
+        return self._min_delay + span * (step / (_DELAY_STEPS - 1))
+
+    def _forget_datagram(self, transport: SimDatagramTransport) -> None:
+        for addr, value in list(self._datagram_endpoints.items()):
+            if value is transport:
+                del self._datagram_endpoints[addr]
+                break
 
     # --- transport registry (ordered, for deterministic host crashes) ---
 
