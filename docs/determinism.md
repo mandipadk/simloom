@@ -115,6 +115,20 @@ honestly:
 - ``host.disk`` is an explicit API. Real file I/O (``open()``) bypasses the
   simulation undetectably and is not crash-consistent.
 
+## Systematic exploration (bounded verification)
+
+`simloom.explore_systematic(main, max_delays=N)` is a stateless model checker
+over the choice tape: it enumerates every distinct interleaving within `N`
+*delays* (non-default scheduling choices) exactly once. Unlike the sampling
+strategies it is **exhaustive within the bound** — so it finds an interleaving
+bug deterministically if one exists in scope, and when it exhausts the space
+with no failure (`result.proven_correct`) that is a *proof*: no schedule within
+`N` delays of the default fails. It reuses the tape whole (the odometer bumps
+draws and replays under FALLBACK), so a witness it finds replays and shrinks
+like any other failure. The reduction is delay bounding, not happens-before
+partial-order reduction (which would need memory-access tracking simloom does
+not do); almost all concurrency bugs surface within two or three delays.
+
 ## The boundary registry
 
 `simloom.boundary()` returns the full table this document describes — every real-world API and its status (`detected` / `simulated` / `patched` / `documented`). A test cross-checks it against the actual escape sites in `SimLoop`, so the boundary cannot silently drift between the code and the docs. `simloom.lookup(api)` queries a single entry.

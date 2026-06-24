@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Systematic deep search — a stateless model checker over the choice tape.**
+  `simloom.explore_systematic(main, max_delays=2)` enumerates every distinct
+  interleaving within a *delay bound* exactly once (a mixed-radix odometer over
+  the tape, reusing FALLBACK replay). Two things random walk and PCT cannot do:
+  it finds a bug needing a specific non-default interleaving *deterministically*
+  (e.g. a check-then-set race the default schedule never hits), and it *proves
+  correctness* — `result.proven_correct` is True when it exhausts the space with
+  no failure. Delay bounding (Emmi/Qadeer/Rakamarić) keeps it tractable without
+  the happens-before tracking full partial-order reduction needs; found failures
+  replay and shrink like any tape.
 - **Phase H (3/3) — soak testing.** `simloom.soak(main, count=, shards=, shard=,
   checkpoint=)` runs continuous, shardable, resumable exploration. Sharding is by
   stride, so shards are disjoint and complete by construction; the checkpoint

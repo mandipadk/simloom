@@ -32,6 +32,7 @@ from ._run import RunResult, replay, run
 from ._sched import PCT, RandomWalk
 from ._shrink import ShrinkResult, shrink
 from ._soak import SoakReport, soak
+from ._systematic import SystematicResult, explore_systematic
 from ._tape import TAPE_FORMAT_VERSION, Draw, MisalignmentPolicy, Tape
 from ._testing import Settings, SimloomTestFailure, test
 from ._version import __version__
@@ -68,6 +69,7 @@ __all__ = [
     "SimloomNondeterminismError",
     "SimloomTestFailure",
     "SoakReport",
+    "SystematicResult",
     "Tape",
     "TapeMisalignmentError",
     "UnhandledExceptionError",
@@ -78,6 +80,7 @@ __all__ = [
     "draw",
     "eventually",
     "explore",
+    "explore_systematic",
     "fingerprint",
     "interleaving_edges",
     "is_pinned",
