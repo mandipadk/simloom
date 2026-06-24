@@ -23,6 +23,7 @@ from ._errors import (
 )
 from ._eventlog import EVENT_LOG_FORMAT_VERSION, EventLog
 from ._explore import Exploration, Failure, explore
+from ._fingerprint import CorpusEntry, InterleavingCorpus, fingerprint, interleaving_edges
 from ._hashseed import is_pinned, pin_hashseed
 from ._loop import SimLoop
 from ._monitors import always, eventually, leads_to
@@ -41,12 +42,14 @@ __all__ = [
     "TAPE_FORMAT_VERSION",
     "BoundaryEntry",
     "BoundaryStatus",
+    "CorpusEntry",
     "Draw",
     "EscapedSimulationError",
     "EventLog",
     "Exploration",
     "Failure",
     "Host",
+    "InterleavingCorpus",
     "InvariantViolation",
     "MisalignmentPolicy",
     "RandomWalk",
@@ -73,6 +76,8 @@ __all__ = [
     "draw",
     "eventually",
     "explore",
+    "fingerprint",
+    "interleaving_edges",
     "is_pinned",
     "leads_to",
     "pin_hashseed",

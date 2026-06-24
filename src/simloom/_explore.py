@@ -68,8 +68,12 @@ def explore(
     # so every seed shares one measured horizon and no seed re-probes.
     if auto_pct_depth(scheduler) is not None:
         probe_keys = {
-            "epoch", "gc_interval", "max_steps_per_instant",
-            "virtual_time", "seed_randomness", "wall_epoch",
+            "epoch",
+            "gc_interval",
+            "max_steps_per_instant",
+            "virtual_time",
+            "seed_randomness",
+            "wall_epoch",
         }
         probe_kwargs = {k: v for k, v in run_kwargs.items() if k in probe_keys}
         scheduler = resolve_auto_horizon(main, scheduler, seed=start_seed, **probe_kwargs)

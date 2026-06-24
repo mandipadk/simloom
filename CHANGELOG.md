@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase H (2/4) — interleaving fingerprints + regression corpus.**
+  `interleaving_edges`/`fingerprint` summarise a run by its `(prev_callback,
+  callback)` step edges; `InterleavingCorpus` accumulates the global edge set
+  and keeps the tapes that first reached new edges. This is the feedback
+  substrate for coverage-guided search: sparse novelty (most runs add no edges)
+  is the steering signal.
 - **Phase H (1/4) — PCT auto-horizon.** `scheduler="pct:auto"` measures the
   scheduling horizon `k` from a probe run instead of the broken `k=4096`
   default (whose change points land past a small test's end and never fire,

@@ -67,9 +67,7 @@ class TestGate:
         # The clearest demonstration of the broken default: deep_ordering needs
         # change points to fire, which k=4096 prevents.
         default = len(
-            simloom.explore(
-                deep_ordering, runs=N, stop_on_failure=False, scheduler="pct"
-            ).failures
+            simloom.explore(deep_ordering, runs=N, stop_on_failure=False, scheduler="pct").failures
         )
         auto = len(
             simloom.explore(
@@ -84,7 +82,5 @@ class TestGate:
         pooled = simloom.explore(
             starvation, runs=40, stop_on_failure=False, scheduler="pct:auto", processes=2
         )
-        serial = simloom.explore(
-            starvation, runs=40, stop_on_failure=False, scheduler="pct:auto"
-        )
+        serial = simloom.explore(starvation, runs=40, stop_on_failure=False, scheduler="pct:auto")
         assert {f.seed for f in pooled.failures} == {f.seed for f in serial.failures}
