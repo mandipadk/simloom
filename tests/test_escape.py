@@ -42,7 +42,7 @@ def test_sync_apis_escape(api: str, call: Callable[[asyncio.AbstractEventLoop], 
         call(asyncio.get_running_loop())
 
     with pytest.raises(EscapedSimulationError, match=api):
-        simloom.run(main, seed=0)
+        simloom.run(main, seed=0, world=False)
 
 
 @pytest.mark.parametrize(("api", "call"), ASYNC_ESCAPES, ids=[a for a, _ in ASYNC_ESCAPES])
@@ -53,14 +53,14 @@ def test_async_apis_escape(
         await call(asyncio.get_running_loop())
 
     with pytest.raises(EscapedSimulationError, match=api):
-        simloom.run(main, seed=0)
+        simloom.run(main, seed=0, world=False)
 
 
 def test_escape_carries_api_and_hint() -> None:
     async def main() -> None:
         await asyncio.get_running_loop().getaddrinfo("example.com", 80)
 
-    result = simloom.run(main, seed=0, raise_on_error=False)
+    result = simloom.run(main, seed=0, raise_on_error=False, world=False)
     assert isinstance(result.error, EscapedSimulationError)
     assert result.error.api == "loop.getaddrinfo"
     assert "determinism.md" in str(result.error)
@@ -74,4 +74,4 @@ def test_open_connection_helper_escapes() -> None:
         await asyncio.open_connection("example.com", 80)
 
     with pytest.raises(EscapedSimulationError, match="create_connection"):
-        simloom.run(main, seed=0)
+        simloom.run(main, seed=0, world=False)

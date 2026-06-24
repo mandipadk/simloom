@@ -60,8 +60,9 @@ below).
 
 ## The simulated world
 
-When the program under test accepts a ``World`` parameter, the network is
-simulated: ``create_connection``, ``create_server``, and ``getaddrinfo``
+A ``World`` is attached by default (pass ``world=False`` to opt out and let
+real-network access escape), so the network is simulated whether or not the
+program under test accepts a ``World`` parameter: ``create_connection``, ``create_server``, and ``getaddrinfo``
 route through in-memory transports instead of escaping. What that means,
 honestly:
 

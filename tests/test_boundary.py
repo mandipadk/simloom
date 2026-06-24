@@ -20,7 +20,7 @@ def _escape_apis_in_source() -> set[str]:
     """Every API string actually passed to an escape at a call site."""
     apis: set[str] = set()
     loop_src = (_SRC / "_loop.py").read_text()
-    apis |= set(re.findall(r'self\._escape(?:_network|_fd)?\(\s*"([^"]+)"', loop_src))
+    apis |= set(re.findall(r'self\._escape(?:_network|_fd|_no_world)?\(\s*"([^"]+)"', loop_src))
     net_src = (_SRC / "_net.py").read_text()
     apis |= set(re.findall(r'api="([^"]+)"', net_src))
     return apis

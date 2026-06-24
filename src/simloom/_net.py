@@ -303,6 +303,7 @@ class SimServer:
         self._protocol_factory = protocol_factory
         self._address = address
         self._closed = False
+        self._close_waiter: asyncio.Event | None = None
         #: The simulated host serving here (None = the root world).
         self.owner: Any = None
         self.sockets = [FakeSocket(address, ("0.0.0.0", 0))]
@@ -314,18 +315,38 @@ class SimServer:
     def make_protocol(self) -> asyncio.BaseProtocol:
         return self._protocol_factory()
 
+    def _waiter(self) -> asyncio.Event:
+        if self._close_waiter is None:
+            self._close_waiter = asyncio.Event()
+            if self._closed:
+                self._close_waiter.set()
+        return self._close_waiter
+
     def close(self) -> None:
         self._closed = True
         self._network._listeners.pop(self._address, None)
+        if self._close_waiter is not None:
+            self._close_waiter.set()
 
     async def wait_closed(self) -> None:
-        return
+        await self._waiter().wait()
 
     def is_serving(self) -> bool:
         return not self._closed
 
     def get_loop(self) -> SimLoop:
         return self._network._loop
+
+    async def serve_forever(self) -> None:
+        # Matches asyncio.Server: block until the server is closed.
+        await self._waiter().wait()
+
+    async def __aenter__(self) -> SimServer:
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        self.close()
+        await self.wait_closed()
 
 
 class SimDNS:

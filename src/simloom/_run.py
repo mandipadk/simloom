@@ -74,6 +74,7 @@ def run(
     seed_randomness: bool = False,
     wall_epoch: float = DEFAULT_WALL_EPOCH,
     check_determinism: bool = False,
+    world: bool = True,
 ) -> RunResult:
     """Run ``main()`` in a fresh simulated universe generated from ``seed``.
 
@@ -101,6 +102,7 @@ def run(
         virtual_time=virtual_time,
         seed_randomness=seed_randomness,
         wall_epoch=wall_epoch,
+        world=world,
     )
 
     def once(rerr: bool) -> RunResult:
@@ -118,6 +120,7 @@ def run(
             virtual_time=virtual_time,
             seed_randomness=seed_randomness,
             wall_epoch=wall_epoch,
+            world=world,
         )
 
     if check_determinism:
@@ -145,6 +148,7 @@ def run(
         virtual_time=virtual_time,
         seed_randomness=seed_randomness,
         wall_epoch=wall_epoch,
+        world=world,
     )
 
 
@@ -165,6 +169,7 @@ def replay(
     virtual_time: bool = False,
     seed_randomness: bool = False,
     wall_epoch: float = DEFAULT_WALL_EPOCH,
+    world: bool = True,
 ) -> RunResult:
     """Re-execute ``main()`` against a recorded universe.
 
@@ -188,6 +193,7 @@ def replay(
         virtual_time=virtual_time,
         seed_randomness=seed_randomness,
         wall_epoch=wall_epoch,
+        world=world,
     )
 
 
@@ -206,6 +212,7 @@ def _execute(
     virtual_time: bool = False,
     seed_randomness: bool = False,
     wall_epoch: float = DEFAULT_WALL_EPOCH,
+    world: bool = True,
 ) -> RunResult:
     if asyncio.iscoroutine(main):
         raise TypeError(
@@ -228,7 +235,16 @@ def _execute(
         scheduler=factory,
         max_steps_per_instant=max_steps_per_instant,
     )
-    world = World(loop) if _wants_world(main) else None
+    wants_world = _wants_world(main)
+    if world:
+        sim_world: World | None = World(loop)
+    elif wants_world:
+        raise TypeError(
+            "main declares a World parameter but world=False; pass world=True "
+            "(the default) or remove the parameter"
+        )
+    else:
+        sim_world = None
     log = loop.log
     log.metadata.update(
         {
@@ -264,7 +280,7 @@ def _execute(
     env.__enter__()
     try:
         try:
-            coro = main(world) if world is not None else main()
+            coro = main(sim_world) if wants_world else main()
             value = loop.run_until_complete(coro)
             # A liveness goal never satisfied during the run is a violation —
             # checked after the main coroutine returns, before teardown.
@@ -400,6 +416,7 @@ def resolve_auto_horizon(
         virtual_time=probe_kwargs.get("virtual_time", False),
         seed_randomness=probe_kwargs.get("seed_randomness", False),
         wall_epoch=probe_kwargs.get("wall_epoch", DEFAULT_WALL_EPOCH),
+        world=probe_kwargs.get("world", True),
     )
     steps = sum(1 for event in probe.log.events if event.get("kind") == "step")
     return f"pct:d={depth},k={max(1, steps)}"

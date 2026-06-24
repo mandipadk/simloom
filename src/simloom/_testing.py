@@ -51,6 +51,7 @@ def test(
     check_determinism: bool = False,
     systematic: bool = False,
     max_delays: int = 2,
+    world: bool = True,
     **run_kwargs: Any,
 ) -> Callable[[Callable[..., Coroutine[Any, Any, Any]]], Callable[..., None]]:
     """Turn an async test into a seed-exploring simulation test.
@@ -74,6 +75,7 @@ def test(
     # (shrinking replays fixed tapes), so it is threaded separately.
     run_kwargs.setdefault("virtual_time", virtual_time)
     run_kwargs.setdefault("seed_randomness", seed_randomness)
+    run_kwargs.setdefault("world", world)
 
     def decorate(fn: Callable[..., Coroutine[Any, Any, Any]]) -> Callable[..., None]:
         def wrapper(simloom_settings: Settings) -> None:

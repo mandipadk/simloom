@@ -755,10 +755,14 @@ class SimLoop(asyncio.AbstractEventLoop):
         raise EscapedSimulationError(api=api, hint=hint)
 
     def _escape_network(self, api: str) -> NoReturn:
+        self._escape(api, "this network API is not simulated")
+
+    def _escape_no_world(self, api: str) -> NoReturn:
         self._escape(
             api,
-            "real network access from inside the simulation; the simulated "
-            "network (SimWorld) arrives in Phase B",
+            "the network is simulated only when a World is present, and this run "
+            "was started with world=False. Pass world=True (the default) or take "
+            "a World parameter to route the network through the simulation",
         )
 
     def _escape_fd(self, api: str) -> NoReturn:
@@ -774,7 +778,7 @@ class SimLoop(asyncio.AbstractEventLoop):
 
     async def getaddrinfo(self, host: Any, port: Any, **kwargs: Any) -> Any:
         if self._network is None:
-            self._escape_network("loop.getaddrinfo")
+            self._escape_no_world("loop.getaddrinfo")
         return await self._network.getaddrinfo(host, port, **kwargs)
 
     async def getnameinfo(self, sockaddr: Any, flags: int = 0) -> Any:
@@ -782,12 +786,12 @@ class SimLoop(asyncio.AbstractEventLoop):
 
     async def create_connection(self, *args: Any, **kwargs: Any) -> Any:
         if self._network is None:
-            self._escape_network("loop.create_connection")
+            self._escape_no_world("loop.create_connection")
         return await self._network.create_connection(*args, **kwargs)
 
     async def create_server(self, *args: Any, **kwargs: Any) -> Any:
         if self._network is None:
-            self._escape_network("loop.create_server")
+            self._escape_no_world("loop.create_server")
         return await self._network.create_server(*args, **kwargs)
 
     async def create_datagram_endpoint(self, *args: Any, **kwargs: Any) -> Any:

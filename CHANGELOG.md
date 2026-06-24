@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase I (2/5) — world-on-by-default.** A `World` is now attached for every
+  run (network simulated) regardless of whether `main` takes a `world`
+  parameter — killing the arity trap where `async def main():` + a network call
+  produced a confusing escape. Pass `world=False` to restore escape-on-real-
+  network (with an accurate message, not the stale "Phase B" one). `SimServer`
+  gained `async with` / `serve_forever` / blocking `wait_closed` for fidelity.
 - **Phase I (1/5) — `connected_pair`.** `world.connected_pair(client_factory,
   server_factory)` drives any two `asyncio.Protocol`s against each other over a
   two-sided simulated connection — no listener, no hand-written stub transport.
