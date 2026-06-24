@@ -31,6 +31,7 @@ from ._net import SimNetwork, SimServer, SimTransport
 from ._run import RunResult, replay, run
 from ._sched import PCT, RandomWalk
 from ._shrink import ShrinkResult, shrink
+from ._soak import SoakReport, soak
 from ._tape import TAPE_FORMAT_VERSION, Draw, MisalignmentPolicy, Tape
 from ._testing import Settings, SimloomTestFailure, test
 from ._version import __version__
@@ -66,6 +67,7 @@ __all__ = [
     "SimloomError",
     "SimloomNondeterminismError",
     "SimloomTestFailure",
+    "SoakReport",
     "Tape",
     "TapeMisalignmentError",
     "UnhandledExceptionError",
@@ -85,6 +87,7 @@ __all__ = [
     "replay",
     "run",
     "shrink",
+    "soak",
     "sometimes",
     "test",
 ]

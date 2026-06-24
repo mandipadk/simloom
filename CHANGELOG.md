@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase H (3/3) — soak testing.** `simloom.soak(main, count=, shards=, shard=,
+  checkpoint=)` runs continuous, shardable, resumable exploration. Sharding is by
+  stride, so shards are disjoint and complete by construction; the checkpoint
+  records each shard's cursor (atomic write), so a killed soak resumes from its
+  next unrun seed — none skipped, none repeated.
 - **Phase H (2/4) — interleaving fingerprints + regression corpus.**
   `interleaving_edges`/`fingerprint` summarise a run by its `(prev_callback,
   callback)` step edges; `InterleavingCorpus` accumulates the global edge set
