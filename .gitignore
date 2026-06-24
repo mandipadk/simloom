@@ -23,3 +23,6 @@ BRIEF.md
 
 # Local pre-publication upstream bug drafts — never ship in the package/repo
 reports/
+
+# internal roadmap, never tracked
+docs/roadmap-100x.md
