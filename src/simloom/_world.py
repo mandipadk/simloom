@@ -262,6 +262,21 @@ class World:
     def hosts(self) -> list[Host]:
         return list(self._hosts.values())
 
+    def connected_pair(
+        self,
+        client_factory: Callable[[], asyncio.BaseProtocol],
+        server_factory: Callable[[], asyncio.BaseProtocol],
+        **kwargs: Any,
+    ) -> tuple[
+        tuple[asyncio.Transport, asyncio.BaseProtocol],
+        tuple[asyncio.Transport, asyncio.BaseProtocol],
+    ]:
+        """Drive any two ``asyncio.Protocol``\\ s against each other over a
+        two-sided simulated connection — no listener, no hand-written stub
+        transport. Both ``connection_made`` callbacks have run on return; the
+        pair carries ``world.net`` faults like a real connection."""
+        return self.net.connected_pair(client_factory, server_factory, **kwargs)
+
     async def sleep(self, seconds: float) -> None:
         """Virtual-time sleep (wall time ~0)."""
         await asyncio.sleep(seconds)

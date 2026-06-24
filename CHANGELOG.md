@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase I (1/5) — `connected_pair`.** `world.connected_pair(client_factory,
+  server_factory)` drives any two `asyncio.Protocol`s against each other over a
+  two-sided simulated connection — no listener, no hand-written stub transport.
+  Both `connection_made` callbacks run before it returns, and the pair carries
+  `world.net` faults (latency/loss/partition/reset) like a real connection.
+  `create_connection` is refactored onto it (behaviour byte-identical).
 - **Systematic deep search — a stateless model checker over the choice tape.**
   `simloom.explore_systematic(main, max_delays=2)` enumerates every distinct
   interleaving within a *delay bound* exactly once (a mixed-radix odometer over

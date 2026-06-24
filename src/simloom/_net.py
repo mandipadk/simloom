@@ -34,6 +34,9 @@ if TYPE_CHECKING:
 
 _EOF = object()
 
+#: Sentinel: default a pairing endpoint's owner to the current host.
+_USE_CURRENT = object()
+
 #: Tape labels for network decisions.
 NET_DELAY = "net.delay"
 NET_LOSS = "net.loss"
@@ -530,21 +533,58 @@ class SimNetwork:
         client_addr = ("10.0.0.99", self._next_client_port)
         self._next_client_port += 1
         server_addr = (ip, int(port))
+        self._loop.log.emit("net_connect", t=self._loop.time(), host=host, port=int(port))
+        (client_transport, client_protocol), _server = self.connected_pair(
+            protocol_factory,
+            server.make_protocol,
+            client_owner=client_owner,
+            server_owner=server.owner,
+            client_addr=client_addr,
+            server_addr=server_addr,
+        )
+        return client_transport, client_protocol
+
+    def connected_pair(
+        self,
+        client_factory: Callable[[], asyncio.BaseProtocol],
+        server_factory: Callable[[], asyncio.BaseProtocol],
+        *,
+        client_owner: Any = _USE_CURRENT,
+        server_owner: Any = _USE_CURRENT,
+        client_addr: tuple[str, int] | None = None,
+        server_addr: tuple[str, int] | None = None,
+    ) -> tuple[
+        tuple[SimTransport, asyncio.BaseProtocol],
+        tuple[SimTransport, asyncio.BaseProtocol],
+    ]:
+        """Pair two ``asyncio.Protocol``\\ s over a two-sided in-memory connection
+        — no listener, no hand-written stub transport. Both ``connection_made``
+        callbacks have run when this returns. The pair is an ordinary connection:
+        latency, loss, partitions, and resets from ``world.net`` apply to it like
+        any other. Returns ``((client_transport, client_protocol), (server_…))``.
+        """
+        owner_c = current_host.get() if client_owner is _USE_CURRENT else client_owner
+        owner_s = current_host.get() if server_owner is _USE_CURRENT else server_owner
+        if client_addr is None:
+            client_addr = ("10.0.0.99", self._next_client_port)
+            self._next_client_port += 1
+        if server_addr is None:
+            server_addr = ("10.0.0.1", self._next_client_port)
+            self._next_client_port += 1
 
         client_transport = SimTransport(self, sockname=client_addr, peername=server_addr)
         server_transport = SimTransport(self, sockname=server_addr, peername=client_addr)
-        client_transport.owner = client_owner
-        server_transport.owner = server.owner
-        server_protocol = server.make_protocol()
-        client_protocol = protocol_factory()
+        client_transport.owner = owner_c
+        server_transport.owner = owner_s
+        client_protocol = client_factory()
+        server_protocol = server_factory()
         client_transport._start(client_protocol, peer=server_transport)
         server_transport._start(server_protocol, peer=client_transport)
         self._remember(client_transport)
         self._remember(server_transport)
-        self._loop.log.emit("net_connect", t=self._loop.time(), host=host, port=int(port))
         server_transport._host_ctx.run(server_protocol.connection_made, server_transport)
         client_transport._host_ctx.run(client_protocol.connection_made, client_transport)
-        return client_transport, client_protocol
+        return (client_transport, client_protocol), (server_transport, server_protocol)
 
     # --- transport registry (ordered, for deterministic host crashes) ---
 
