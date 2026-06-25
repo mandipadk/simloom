@@ -114,6 +114,7 @@ class SimLoop(asyncio.AbstractEventLoop):
         gc_interval: int = 1009,
         scheduler: str | SchedulerFactory | None = None,
         max_steps_per_instant: int = 1_000_000,
+        causal: bool = False,
     ) -> None:
         self._tape = tape
         self._scheduler = resolve_scheduler(scheduler)(self)
@@ -124,6 +125,14 @@ class SimLoop(asyncio.AbstractEventLoop):
         self._timer_seq = 0
         self._task_name_seq = 0
         self._step_seq = 0
+        # Causal event log v2 (opt-in): records why each step woke — the
+        # happens-before edge to the step that scheduled it. Off by default so
+        # the hot path and the digest are unchanged.
+        self._causal = causal
+        self._current_step: int | None = None
+        self._handle_cause: weakref.WeakKeyDictionary[asyncio.Handle, tuple[int | None, str]] = (
+            weakref.WeakKeyDictionary()
+        )
         self._gc_interval = gc_interval
         self._closed = False
         self._running = False
@@ -363,7 +372,9 @@ class SimLoop(asyncio.AbstractEventLoop):
             choice=index,
             ready=count,
             ran=describe_callback(_handle_callback(handle)),
+            **self._cause_fields(handle),
         )
+        self._current_step = self._step_seq
         self._step_seq += 1
         self._detect_livelock()
         if self._gc_interval and self._step_seq % self._gc_interval == 0:
@@ -457,6 +468,7 @@ class SimLoop(asyncio.AbstractEventLoop):
                 choice=index,
                 ready=count,
                 ran=describe_callback(_handle_callback(handle)),
+                **self._cause_fields(handle),
             )
             handle._run()
             steps += 1
@@ -533,6 +545,8 @@ class SimLoop(asyncio.AbstractEventLoop):
         self._check_closed()
         _check_callback(callback, "call_soon")
         handle = asyncio.Handle(callback, args, self, context)
+        if self._causal:
+            self._handle_cause[handle] = (self._current_step, "soon")
         self._ready.append(handle)
         return handle
 
@@ -555,6 +569,8 @@ class SimLoop(asyncio.AbstractEventLoop):
         self._check_closed()
         _check_callback(callback, "call_at")
         handle = asyncio.TimerHandle(float(when), callback, args, self, context)
+        if self._causal:
+            self._handle_cause[handle] = (self._current_step, "timer")
         self._timer_seq += 1
         heapq.heappush(self._scheduled, (float(when), self._timer_seq, handle))
         return handle
@@ -749,6 +765,16 @@ class SimLoop(asyncio.AbstractEventLoop):
     # ------------------------------------------------------------------
     # the simulation boundary: real-world APIs raise, loudly
     # ------------------------------------------------------------------
+
+    def _cause_fields(self, handle: asyncio.Handle) -> dict[str, Any]:
+        """Causal v2: the happens-before edge for this step — which earlier step
+        scheduled the callback now running, and how (timer vs immediate)."""
+        if not self._causal:
+            return {}
+        cause = self._handle_cause.pop(handle, None)
+        if cause is None:
+            return {"woke_by": None, "via": "root"}
+        return {"woke_by": cause[0], "via": cause[1]}
 
     def _escape(self, api: str, hint: str) -> NoReturn:
         self._log.emit("escape", t=self._now, api=api)

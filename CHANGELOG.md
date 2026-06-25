@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase J (1/3) — causal event log v2.** Opt-in `causal=True` annotates every
+  `step` with *why it woke*: `woke_by` (the earlier step that scheduled the
+  callback now running — the happens-before edge) and `via` (`timer` vs `soon`).
+  Off by default, so the hot path and the digest are unchanged. The edges
+  satisfy an independent happens-before oracle: causes precede effects, every
+  step traces to a root, and an immediate (`soon`) wakeup runs at the same
+  virtual instant as its cause while a `timer` wakeup runs at or after it.
 - **Phase I (5/5) — TLS in the simulation.** `create_connection(ssl=)` /
   `create_server(ssl=)` now wrap each protocol in asyncio's own memory-BIO
   `SSLProtocol` over `SimTransport`, so the handshake runs in-process over the

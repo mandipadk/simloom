@@ -75,6 +75,7 @@ def run(
     wall_epoch: float = DEFAULT_WALL_EPOCH,
     check_determinism: bool = False,
     world: bool = True,
+    causal: bool = False,
 ) -> RunResult:
     """Run ``main()`` in a fresh simulated universe generated from ``seed``.
 
@@ -103,6 +104,7 @@ def run(
         seed_randomness=seed_randomness,
         wall_epoch=wall_epoch,
         world=world,
+        causal=causal,
     )
 
     def once(rerr: bool) -> RunResult:
@@ -121,6 +123,7 @@ def run(
             seed_randomness=seed_randomness,
             wall_epoch=wall_epoch,
             world=world,
+            causal=causal,
         )
 
     if check_determinism:
@@ -149,6 +152,7 @@ def run(
         seed_randomness=seed_randomness,
         wall_epoch=wall_epoch,
         world=world,
+        causal=causal,
     )
 
 
@@ -170,6 +174,7 @@ def replay(
     seed_randomness: bool = False,
     wall_epoch: float = DEFAULT_WALL_EPOCH,
     world: bool = True,
+    causal: bool = False,
 ) -> RunResult:
     """Re-execute ``main()`` against a recorded universe.
 
@@ -194,6 +199,7 @@ def replay(
         seed_randomness=seed_randomness,
         wall_epoch=wall_epoch,
         world=world,
+        causal=causal,
     )
 
 
@@ -213,6 +219,7 @@ def _execute(
     seed_randomness: bool = False,
     wall_epoch: float = DEFAULT_WALL_EPOCH,
     world: bool = True,
+    causal: bool = False,
 ) -> RunResult:
     if asyncio.iscoroutine(main):
         raise TypeError(
@@ -234,6 +241,7 @@ def _execute(
         gc_interval=gc_interval,
         scheduler=factory,
         max_steps_per_instant=max_steps_per_instant,
+        causal=causal,
     )
     wants_world = _wants_world(main)
     if world:
