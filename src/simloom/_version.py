@@ -5,4 +5,4 @@ Single source of truth: pyproject.toml reads ``__version__`` from this file
 tag matches it. Bump here, tag ``vX.Y.Z``, publish.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

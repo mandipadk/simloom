@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-25
+
 ### Added
 - **Phase L — stand-in services: sim-redis.** `world.run_service(SimRedis(),
   host=, port=)` starts an in-sim RESP server an *unmodified* `redis.asyncio.Redis`
@@ -178,5 +180,6 @@ explorer, shrinker, and pytest plugin are all present and exercised by a
   race (bpo-42130) reproduced deterministically from a seed; the modern stdlib
   survives the identical torture. Launch-post draft in `docs/launch-post.md`.
 
-[Unreleased]: https://github.com/mandipadk/simloom/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/mandipadk/simloom/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/mandipadk/simloom/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mandipadk/simloom/releases/tag/v0.1.0

@@ -1,7 +1,7 @@
 [project]
 name = "simloom"
 dynamic = ["version"]
-description = "Deterministic simulation testing for asyncio: seeded schedules, fault injection, perfect replay."
+description = "Deterministic simulation testing for asyncio: explore every schedule, inject faults, assert properties, prove correctness, and replay any failure from a seed."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -14,9 +14,13 @@ keywords = [
     "testing",
     "fault-injection",
     "concurrency",
+    "model-checking",
+    "serializability",
+    "chaos-engineering",
+    "property-testing",
 ]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Framework :: AsyncIO",
     "Framework :: Pytest",
     "Intended Audience :: Developers",

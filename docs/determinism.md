@@ -2,12 +2,14 @@
 
 This document is the honest boundary of the simulation. It will always state
 exactly what is deterministic, what escapes, and what we detect versus what
-we merely document. Status: **Phase F** — the deterministic loop, tape,
-simulated world, the fault matrix (partitions, asymmetric blocks, resets,
-crashes with torn writes, latency/loss), buggify, and the Phase D explorer
-(random walk + PCT, serial or multiprocess), tape shrinker, the pytest plugin
-(`@simloom.test`), and the **property monitors** (`always`/`eventually`/
-`leads_to`, the livelock oracle, convergence) exist.
+we merely document. Status: **0.2.0** — the deterministic loop, tape, simulated
+world and full fault matrix (streams, UDP datagrams with loss/reorder/dup, TLS,
+partitions, asymmetric/per-link shaping, resets, crashes with torn writes),
+buggify, the explorer (random walk + `pct:auto`, serial or multiprocess, soak),
+the tape shrinker, the pytest plugin (`@simloom.test`), the property monitors
+(`always`/`eventually`/`leads_to`, livelock, convergence), the systematic
+verifier (`explore_systematic`), the serializability checker
+(`check_serializable`), the causal trace/diff CLI, and sim-redis all exist.
 
 Explorer/shrinker notes: PCT scheduling draws its priorities and change
 points from the tape, so PCT universes replay and shrink like any other.

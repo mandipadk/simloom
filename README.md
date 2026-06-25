@@ -22,9 +22,13 @@ state of the art.
 **simloom runs your unmodified asyncio program inside a fully simulated world** — a
 seeded scheduler that owns every interleaving, a virtual clock, an in-memory network
 with injectable latency, loss, partitions, and crashes — and explores thousands of
-hostile schedules looking for the one that breaks your invariants. When it finds one,
-it hands you a **seed** that replays the failure byte-for-byte, forever, and **shrinks**
-it to the minimal schedule that still triggers the bug.
+hostile schedules looking for the one that breaks your invariants. It doesn't just find
+crashes: it asserts **safety and liveness** properties, **proves** correctness by
+exhaustive systematic search, and catches **wrong answers** (a store that returns a stale
+or impossible read) with serializability checking. When it finds a problem, it hands you a
+**seed** that replays the failure byte-for-byte, forever, **shrinks** it to the minimal
+schedule that still triggers the bug, and lets you **walk the causal trace** of what woke
+what.
 
 ```text
 FAILED test_lease_exclusivity — simloom found a failing universe
@@ -92,6 +96,37 @@ async def test_leader_election(world):
     await world.until(lambda: exactly_one_leader(nodes), timeout=120)
 ```
 
+### Beyond crashes
+
+Assert what *should* hold, prove it can't be violated, and catch wrong answers:
+
+```python
+@simloom.test(runs=5000)
+async def test_lease_safety(world):
+    cluster = start_cluster(world)
+    # safety: never two leaders. liveness: one eventually emerges.
+    world.always("≤1 leader", lambda: sum(n.is_leader for n in cluster) <= 1)
+    world.eventually("a leader", lambda: any(n.is_leader for n in cluster), within=120)
+    await world.sleep(300)
+
+@simloom.test(systematic=True, max_delays=3)     # exhaustive, not sampled
+async def test_critical_section():
+    ...                                          # passes ⇒ a bounded PROOF of correctness
+
+@simloom.test(runs=5000)
+async def test_store_is_serializable(world):
+    await run_transactions(world)                # records ops into world.history
+    world.assert_serializable()                  # finds lost updates / write skew, with the cycle
+```
+
+And once it finds something, replay and walk it:
+
+```sh
+pytest --simloom-seed=17 -k lease          # replay the exact failing universe
+simloom trace failure.jsonl --step 42      # reconstruct state + the happens-before stack
+simloom diff run_a.jsonl run_b.jsonl       # first divergence between two universes
+```
+
 ## Why this didn't exist before
 
 Rust has [`loom`](https://github.com/tokio-rs/loom),
@@ -106,32 +141,62 @@ had **nothing**.
 And asyncio is *structurally perfect* for it: every interleaving decision happens at an
 `await`, under a **replaceable event loop**. simloom swaps in a deterministic one — no
 forked interpreter, no hypervisor, no recompilation. Because the ecosystem (aiohttp,
-httpx, the streams API) bottoms out in loop primitives, **real, unmodified libraries run
-inside the simulation**. Our CI runs a genuine aiohttp server against a genuine httpx
-client over the simulated network, with 20% packet loss injected, replayable from a seed.
+httpx, redis, the streams API) bottoms out in loop primitives, **real, unmodified
+libraries run inside the simulation**. Our CI runs an unmodified **aiohttp HTTPS** server
+against an unmodified aiohttp client over a memory-BIO TLS handshake, and an unmodified
+**`redis.asyncio.Redis`** against an in-sim Redis — all over the simulated network, with
+faults injected, replayable byte-for-byte from a seed.
 
 ## What you get
 
-- **🎲 Seeded, exhaustive-ish scheduling** — a single *choice tape* (the Hypothesis
-  trick, applied to schedules) drives every decision. One seed → one exact universe.
-- **⏱ Virtual time** — an hour of simulated `asyncio.sleep` traffic runs in
-  milliseconds. Timeouts and retries are tested at full speed.
-- **🌐 A simulated network** — in-memory transports with tape-driven latency, loss
-  (modeled as TCP retransmit delay — streams never corrupt), partitions, asymmetric
-  blocks, and connection resets.
-- **💥 Honest crashes** — `host.crash()` is a power cut: tasks stop with no `finally`
-  blocks, unsynced disk writes are lost or *torn*, peers see resets. `restart()` brings
-  the host back against its surviving fsynced state.
-- **🔬 Fault injection in your code** — `simloom.sometimes("drop_cache")` is tape-driven
-  inside the sim and a constant `False` in production. Annotate rare branches; explore
-  them.
+**Run it.** Your real asyncio code, unchanged, inside the simulation.
+
+- **🎲 Seeded scheduling** — a single *choice tape* (the Hypothesis trick, applied to
+  schedules) drives every decision. One seed → one exact universe.
+- **⏱ Virtual time** — an hour of simulated `asyncio.sleep` traffic runs in milliseconds;
+  opt-in patching makes `time.time()` and the stdlib RNG tape-driven too, so an unmodified
+  library that timestamps or rolls a random timeout replays byte-for-byte.
+- **🌐 A simulated network** — in-memory streams (loss modeled as TCP retransmit delay —
+  bytes never corrupt), **UDP datagrams** with real loss/reorder/duplication,
+  partitions, asymmetric per-link latency/loss shaping, resets, and **TLS in-sim**
+  (memory-BIO SSL, so aiohttp HTTPS just works).
+- **💥 Honest crashes & disk** — `host.crash()` is a power cut: tasks stop with no
+  `finally` blocks, unsynced disk writes are lost or *torn*, peers see resets.
+- **🧩 Stand-in services** — `world.run_service(SimRedis(), …)` gives you an in-sim Redis
+  (SET/GET, WATCH/MULTI/EXEC) to test your logic against, with wire faults applied.
+
+**Break it.** Explore the schedules and faults your laptop never will.
+
+- **🔬 Fault injection** — `simloom.sometimes("drop_cache")` is tape-driven inside the sim
+  and a constant `False` in production. Annotate rare branches; explore them.
+- **🧭 Pluggable search** — uniform random walk, **`pct:auto`** (auto-tuned
+  [Probabilistic Concurrency Testing](https://www.microsoft.com/en-us/research/publication/a-randomized-scheduler-with-probabilistic-guarantees-of-finding-bugs/)
+  that finds deep-ordering and starvation bugs random walk never hits), and `simloom.soak`
+  (resumable, shardable continuous exploration).
+
+**Check it.** Assertions far past "didn't crash."
+
+- **🛡 Safety & liveness oracles** — `world.always("one leader", …)`,
+  `world.eventually("elects a leader", …, within=120)`, `world.leads_to(…)`, plus a
+  livelock detector and replica-convergence checks.
+- **✅ Prove it** — `@simloom.test(systematic=True)` switches from sampling seeds to
+  *exhaustive* delay-bounded model checking: it finds a deep interleaving bug
+  deterministically, or **passes as a bounded proof of correctness**.
+- **🧾 Find wrong answers** — an Elle-style serializability checker
+  (`world.check_serializable`) catches a store that returns a stale or impossible read —
+  not just one that crashes — and reports the cyclic read/write dependency.
+
+**Reproduce & debug it.**
+
 - **🪓 Automatic shrinking** — failures reduce to the minimal schedule deviation, with a
-  human-readable explanation and a replayable artifact on disk.
-- **🧭 Pluggable search** — a uniform random walk *and* PCT
-  ([Probabilistic Concurrency Testing](https://www.microsoft.com/en-us/research/publication/a-randomized-scheduler-with-probabilistic-guarantees-of-finding-bugs/)),
-  which finds deep ordering and starvation bugs a random walk essentially never hits.
-- **🚨 Escape detection** — touch a real socket, signal, subprocess, or the wall clock
-  from inside the sim and you get an `EscapedSimulationError` at the exact call site
+  replayable artifact on disk.
+- **🔁 Determinism guarantees** — a per-test self-check (run twice, locate the first
+  diverging event), `PYTHONHASHSEED` auto-pin, and a queryable boundary registry.
+- **🕰 Causal trace** — record with `causal=True` and walk it: `simloom trace LOG --step N`
+  reconstructs state and the *happens-before stack* that woke it; `--changed x` is an
+  omniscient query; `simloom diff A B` finds the first divergence between two universes.
+- **🚨 Escape detection** — touch a real socket, signal, subprocess, or (un-patched) wall
+  clock from inside the sim and you get an `EscapedSimulationError` at the exact call site
   instead of silent nondeterminism.
 
 ## It finds real bugs
@@ -153,25 +218,29 @@ version survives, with coverage counters proving the faults actually fired.
 
 A determinism claim is only as good as its disclosed limits. simloom raises a loud error
 when your code reaches outside the simulation, and [`docs/determinism.md`](docs/determinism.md)
-states **exactly** what is and isn't deterministic. Known boundaries: blocking
-C-extension I/O (`psycopg2`, `requests`, grpc's C core) can't run in-sim; direct
-`time.time()` reads bypass the virtual clock; real subprocesses and external servers
-need Python stand-ins. None of these fail silently.
+states **exactly** what is and isn't deterministic — now machine-readable via
+`simloom.boundary()`. Known boundaries: blocking C-extension I/O (`psycopg2`, `requests`,
+grpc's C core) can't run in-sim; a `from time import …` alias or the C-accelerated
+`datetime.now()` isn't redirected by the clock patch; real subprocesses and external
+servers need stand-ins. None of these fail silently — and the per-test determinism
+self-check locates anything that slips through.
 
 ## Status
 
-**Pre-alpha, and built in the open.** The deterministic core, simulated world, fault
-matrix, explorer, shrinker, and pytest plugin all exist and are exercised by a
-10,000-seed determinism torture on every CI run (the harness holds itself to the same
-hostility it applies to your code). The API may still shift before 1.0. If you try it,
+**Alpha, and built in the open.** The deterministic core, the simulated world and fault
+matrix (streams, UDP, TLS, partitions, crashes, torn disk writes), the explorer, shrinker,
+property oracles, systematic verifier, serializability checker, causal-trace CLI, and the
+pytest plugin all exist — exercised by a 10,000-seed determinism torture on every CI run
+(the harness holds itself to the same hostility it applies to your code) across Python
+3.12/3.13/3.14. The API may still shift before 1.0. If you try it,
 [open an issue](https://github.com/mandipadk/simloom/issues) — early feedback shapes it.
 
 ## Learn more
 
 - [`docs/determinism.md`](docs/determinism.md) — the honest boundary of the simulation
 - [`docs/event-log.md`](docs/event-log.md) — the versioned event-log and tape formats
+- [`CHANGELOG.md`](CHANGELOG.md) — every capability, phase by phase
 - [`examples/`](examples/) — the toy Raft and the bpo-42130 reproduction, both runnable
-- [`docs/plan.md`](docs/plan.md) — the architecture and the road to 1.0
 
 ## Development
 
