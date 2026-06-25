@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase I (5/5) — TLS in the simulation.** `create_connection(ssl=)` /
+  `create_server(ssl=)` now wrap each protocol in asyncio's own memory-BIO
+  `SSLProtocol` over `SimTransport`, so the handshake runs in-process over the
+  simulated wire. The run is deterministic and replays byte-for-byte even though
+  OpenSSL's RNG is unseeded (the event log records scheduling, not ciphertext).
+  `SimTransport` gained `BufferedProtocol` support (`get_buffer`/`buffer_updated`)
+  to drive SSL, and `loop.sock_connect` + `create_connection(sock=)` are
+  simulated for happy-eyeballs clients. **Gate met:** an unmodified aiohttp HTTPS
+  client hits an unmodified aiohttp HTTPS server in-sim over a pinned cert,
+  replayable byte-for-byte (status 200, deterministic on 3.12/3.13/3.14).
 - **Phase I (4/5) — per-link / per-node shaping.** `world.net.set_link_latency`
   and `set_link_loss` shape a single directional link (real links are
   asymmetric); `clog_node_out` / `clog_node_in` shape a node's whole egress /

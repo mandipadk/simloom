@@ -20,14 +20,16 @@ Design rules carried from the Phase 0 spikes:
 from __future__ import annotations
 
 import asyncio
+import asyncio.sslproto
+import contextlib
 import contextvars
 import socket
+import ssl as ssl_module
 from collections import deque
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ._context import current_host
-from ._errors import EscapedSimulationError
 
 if TYPE_CHECKING:
     from ._loop import SimLoop
@@ -216,9 +218,26 @@ class SimTransport(asyncio.Transport):
                     self.close()
             else:
                 assert isinstance(item, bytes)
-                data_received = getattr(protocol, "data_received", None)
-                if data_received is not None:
-                    data_received(item)
+                self._deliver(protocol, item)
+
+    def _deliver(self, protocol: asyncio.BaseProtocol, data: bytes) -> None:
+        """Hand received bytes to the protocol via the buffered interface
+        (``get_buffer``/``buffer_updated``, used by asyncio's SSLProtocol) or the
+        classic ``data_received`` — whichever the protocol implements."""
+        if isinstance(protocol, asyncio.BufferedProtocol):
+            view = memoryview(data)
+            while view and not self._closed:
+                buffer = memoryview(protocol.get_buffer(len(view))).cast("B")
+                count = min(len(buffer), len(view))
+                if count <= 0:
+                    raise RuntimeError("get_buffer() returned a zero-length buffer")
+                buffer[:count] = view[:count]
+                protocol.buffer_updated(count)
+                view = view[count:]
+        else:
+            data_received = getattr(protocol, "data_received", None)
+            if data_received is not None:
+                data_received(data)
 
     def pause_reading(self) -> None:
         self._paused = True
@@ -248,6 +267,20 @@ class SimTransport(asyncio.Transport):
 
     def abort(self) -> None:
         self.close()
+
+    def _force_close(self, exc: BaseException | None) -> None:
+        """asyncio's SSLProtocol aborts the underlying transport this way."""
+        if self._closed:
+            return
+        self._closing = True
+        self._closed = True
+        self._network._forget(self)
+        protocol = self._protocol
+        if protocol is not None and not self._loop.is_closed():
+            self._loop.call_soon(
+                lambda: protocol.connection_lost(exc),  # type: ignore[arg-type]
+                context=self._host_ctx,
+            )
 
     def _finalize(self) -> None:
         if self._closed:
@@ -397,12 +430,16 @@ class SimServer:
         network: SimNetwork,
         protocol_factory: Callable[[], asyncio.BaseProtocol],
         address: tuple[str, int],
+        ssl: Any = None,
     ) -> None:
         self._network = network
         self._protocol_factory = protocol_factory
         self._address = address
         self._closed = False
         self._close_waiter: asyncio.Event | None = None
+        #: The server's TLS context (None = plain). When set, connections to
+        #: this listener are wrapped with asyncio's memory-BIO SSLProtocol.
+        self.ssl: Any = ssl
         #: The simulated host serving here (None = the root world).
         self.owner: Any = None
         self.sockets = [FakeSocket(address, ("0.0.0.0", 0))]
@@ -503,6 +540,8 @@ class SimNetwork:
         self._node_in_loss: dict[str, int] = {}
         #: Datagram endpoints by bound address, and their crash-ordered registry.
         self._datagram_endpoints: dict[tuple[str, int], SimDatagramTransport] = {}
+        #: Raw sockets mid-connect (happy-eyeballs): id(sock) -> (server, addr, owner).
+        self._pending_socks: dict[int, tuple[SimServer, tuple[str, int], Any]] = {}
         self._datagram_seq = 0
         #: Per-flow (src -> dst) last arrival time, for in-order delivery unless
         #: a packet is explicitly reordered.
@@ -719,18 +758,13 @@ class SimNetwork:
         ssl: Any = None,
         **kwargs: Any,
     ) -> SimServer:
-        if ssl is not None:
-            raise EscapedSimulationError(
-                api="loop.create_server(ssl=...)",
-                hint="TLS is not simulated yet; serve plain in-sim",
-            )
         if host is None or port is None:
             raise ValueError("simulated create_server requires explicit host and port")
         ip = self.dns.register(host) if not _looks_like_ip(host) else host
         address = (ip, int(port))
         if address in self._listeners:
             raise OSError(98, f"address already in use: {address}")
-        server = SimServer(self, protocol_factory, address)
+        server = SimServer(self, protocol_factory, address, ssl=ssl)
         server.owner = current_host.get()
         self._listeners[address] = server
         self._loop.log.emit("net_listen", t=self._loop.time(), host=host, port=int(port))
@@ -743,30 +777,71 @@ class SimNetwork:
         port: int | None = None,
         *,
         ssl: Any = None,
+        server_hostname: str | None = None,
+        sock: Any = None,
         **kwargs: Any,
-    ) -> tuple[SimTransport, asyncio.BaseProtocol]:
-        if ssl is not None:
-            raise EscapedSimulationError(
-                api="loop.create_connection(ssl=...)",
-                hint="TLS is not simulated yet; connect plain in-sim",
+    ) -> tuple[asyncio.BaseTransport, asyncio.BaseProtocol]:
+        # Happy-eyeballs clients (aiohttp) connect a raw socket via sock_connect,
+        # then hand it here; we routed the connection at sock_connect time.
+        if sock is not None:
+            entry = self._pending_socks.pop(id(sock), None)
+            with contextlib.suppress(OSError):
+                sock.close()  # the SimTransport replaces it
+            if entry is None:
+                raise OSError("socket was not connected through the simulated network")
+            server, server_addr, client_owner = entry
+            return await self._finish_connect(
+                protocol_factory,
+                server,
+                client_owner,
+                server_addr,
+                ssl,
+                server_hostname or server_addr[0],
             )
         if host is None or port is None:
             raise ValueError("simulated create_connection requires explicit host and port")
         ip = self.dns.resolve(host)
         client_owner = current_host.get()
-        server = self._listeners.get((ip, int(port)))
-        if server is not None:
-            # A SYN cannot cross a partition: hang until heal (a caller
-            # timeout, or the deadlock oracle, turns this into a finding).
-            await self._wait_until_unblocked(_owner_name(client_owner), _owner_name(server.owner))
-            server = self._listeners.get((ip, int(port)))
-        if server is None or not server.is_serving():
-            raise ConnectionRefusedError(111, f"connection refused: {(ip, int(port))}")
+        server = await self._reach_listener(ip, int(port), client_owner)
+        return await self._finish_connect(
+            protocol_factory, server, client_owner, (ip, int(port)), ssl, server_hostname or host
+        )
 
+    async def _reach_listener(self, ip: str, port: int, client_owner: Any) -> SimServer:
+        server = self._listeners.get((ip, port))
+        if server is not None:
+            # A SYN cannot cross a partition: hang until heal (a caller timeout,
+            # or the deadlock oracle, turns this into a finding).
+            await self._wait_until_unblocked(_owner_name(client_owner), _owner_name(server.owner))
+            server = self._listeners.get((ip, port))
+        if server is None or not server.is_serving():
+            raise ConnectionRefusedError(111, f"connection refused: {(ip, port)}")
+        return server
+
+    async def _finish_connect(
+        self,
+        protocol_factory: Callable[[], asyncio.BaseProtocol],
+        server: SimServer,
+        client_owner: Any,
+        server_addr: tuple[str, int],
+        ssl: Any,
+        server_hostname: str,
+    ) -> tuple[asyncio.BaseTransport, asyncio.BaseProtocol]:
         client_addr = ("10.0.0.99", self._next_client_port)
         self._next_client_port += 1
-        server_addr = (ip, int(port))
-        self._loop.log.emit("net_connect", t=self._loop.time(), host=host, port=int(port))
+        if ssl is not None or server.ssl is not None:
+            return await self._tls_connect(
+                protocol_factory,
+                server,
+                client_owner,
+                client_addr,
+                server_addr,
+                client_ssl=ssl,
+                server_hostname=server_hostname,
+            )
+        self._loop.log.emit(
+            "net_connect", t=self._loop.time(), host=server_hostname, port=server_addr[1]
+        )
         (client_transport, client_protocol), _server = self.connected_pair(
             protocol_factory,
             server.make_protocol,
@@ -776,6 +851,72 @@ class SimNetwork:
             server_addr=server_addr,
         )
         return client_transport, client_protocol
+
+    async def sock_connect(self, sock: Any, address: tuple[str, int]) -> None:
+        """Route a raw socket's connect through the simulation (the happy-
+        eyeballs path). The pairing is stashed and consumed by a following
+        ``create_connection(sock=...)``."""
+        host, port = address[0], int(address[1])
+        ip = host if _looks_like_ip(host) else self.dns.resolve(host)
+        client_owner = current_host.get()
+        server = await self._reach_listener(ip, port, client_owner)
+        self._pending_socks[id(sock)] = (server, (ip, port), client_owner)
+
+    async def _tls_connect(
+        self,
+        protocol_factory: Callable[[], asyncio.BaseProtocol],
+        server: SimServer,
+        client_owner: Any,
+        client_addr: tuple[str, int],
+        server_addr: tuple[str, int],
+        *,
+        client_ssl: Any,
+        server_hostname: str,
+    ) -> tuple[asyncio.BaseTransport, asyncio.BaseProtocol]:
+        """TLS over a simulated connection: wrap each app protocol in asyncio's
+        own memory-BIO ``SSLProtocol`` and run the handshake over the in-memory
+        transport pair. The handshake structure is deterministic, so the run
+        replays byte-for-byte even though OpenSSL's RNG is not seeded."""
+        if not isinstance(server.ssl, ssl_module.SSLContext):
+            raise ssl_module.SSLError("server endpoint has no TLS certificate configured")
+        client_ctx = (
+            client_ssl
+            if isinstance(client_ssl, ssl_module.SSLContext)
+            else ssl_module.create_default_context()
+        )
+        loop = self._loop
+        client_app = protocol_factory()
+        server_app = server.make_protocol()
+        client_waiter = loop.create_future()
+        server_waiter = loop.create_future()
+        client_proto = asyncio.sslproto.SSLProtocol(
+            loop,
+            client_app,
+            client_ctx,
+            client_waiter,
+            server_side=False,
+            server_hostname=server_hostname,
+        )
+        server_proto = asyncio.sslproto.SSLProtocol(
+            loop,
+            server_app,
+            server.ssl,
+            server_waiter,
+            server_side=True,
+        )
+        loop.log.emit(
+            "net_connect", t=loop.time(), host=server_hostname, port=server_addr[1], tls=True
+        )
+        self.connected_pair(
+            lambda: client_proto,
+            lambda: server_proto,
+            client_owner=client_owner,
+            server_owner=server.owner,
+            client_addr=client_addr,
+            server_addr=server_addr,
+        )
+        await asyncio.gather(client_waiter, server_waiter)
+        return client_proto._app_transport, client_app
 
     def connected_pair(
         self,

@@ -95,8 +95,12 @@ honestly:
   ``set_datagram_duplication`` / ``set_datagram_reorder`` drop, duplicate, and
   reorder packets for real (no retransmission) — the faults a UDP protocol must
   tolerate. Every packet's fate is a tape draw, so it replays.
-- **TLS is not simulated** — passing ``ssl=`` raises ``EscapedSimulationError``.
-  Serve plain inside the sim.
+- **TLS is simulated.** ``create_connection(ssl=)``/``create_server(ssl=)`` wrap
+  each protocol in asyncio's memory-BIO ``SSLProtocol`` over a ``SimTransport``;
+  the handshake runs in-process and replays byte-for-byte (the event log records
+  scheduling, not ciphertext, so OpenSSL's unseeded RNG does not leak in).
+  Happy-eyeballs clients (aiohttp) work via simulated ``sock_connect`` +
+  ``create_connection(sock=)``. In-place ``start_tls`` upgrades are not simulated.
 - **DNS is simulated and strict**: names are registered when a server binds
   to them (or explicitly via ``world.net.dns.register``); unknown names
   raise ``socket.gaierror`` like NXDOMAIN.

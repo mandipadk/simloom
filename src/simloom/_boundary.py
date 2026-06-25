@@ -54,9 +54,9 @@ _REGISTRY: tuple[BoundaryEntry, ...] = (
     BoundaryEntry("loop.create_datagram_endpoint", _D, "real UDP; simulated with a World"),
     BoundaryEntry("loop.create_unix_connection", _D, "real unix socket"),
     BoundaryEntry("loop.create_unix_server", _D, "real unix listener"),
-    BoundaryEntry("loop.start_tls", _D, "TLS not simulated yet"),
-    BoundaryEntry("loop.create_connection(ssl=...)", _D, "TLS not simulated yet"),
-    BoundaryEntry("loop.create_server(ssl=...)", _D, "TLS not simulated yet"),
+    BoundaryEntry(
+        "loop.start_tls", _D, "in-place TLS upgrade not simulated; use create_connection(ssl=)"
+    ),
     BoundaryEntry("loop.sendfile", _D, "real file/socket sendfile"),
     BoundaryEntry("loop.sock_recv", _D, "raw socket I/O"),
     BoundaryEntry("loop.sock_recv_into", _D, "raw socket I/O"),
@@ -64,7 +64,7 @@ _REGISTRY: tuple[BoundaryEntry, ...] = (
     BoundaryEntry("loop.sock_recvfrom_into", _D, "raw socket I/O"),
     BoundaryEntry("loop.sock_sendall", _D, "raw socket I/O"),
     BoundaryEntry("loop.sock_sendto", _D, "raw socket I/O"),
-    BoundaryEntry("loop.sock_connect", _D, "raw socket I/O"),
+    BoundaryEntry("loop.sock_connect", _D, "raw socket; simulated with a World (happy-eyeballs)"),
     BoundaryEntry("loop.sock_accept", _D, "raw socket I/O"),
     BoundaryEntry("loop.sock_sendfile", _D, "raw socket I/O"),
     BoundaryEntry("loop.add_reader", _D, "file-descriptor readiness needs a real selector"),
@@ -83,6 +83,9 @@ _REGISTRY: tuple[BoundaryEntry, ...] = (
     BoundaryEntry("asyncio primitives", _S, "Event/Lock/Condition/Queue/Semaphore/sleep/gather"),
     BoundaryEntry("World.net", _S, "in-memory transports, DNS, latency/loss/partition faults"),
     BoundaryEntry("World.net datagrams", _S, "UDP with real loss/reorder/duplication faults"),
+    BoundaryEntry(
+        "create_connection(ssl=)", _S, "TLS via asyncio memory-BIO SSLProtocol over SimTransport"
+    ),
     BoundaryEntry("Host.disk", _S, "honest fsync, torn/lost writes on crash"),
     # --- PATCHED: deterministic when the opt-in patches are on -----------
     BoundaryEntry("time.time", _P, "virtual_time=True -> wall_epoch + loop.time()"),

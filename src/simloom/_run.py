@@ -371,6 +371,14 @@ def _teardown(loop: SimLoop) -> BaseException | None:
             task.cancel()
         if revived:
             loop.run_until_complete(asyncio.gather(*revived, return_exceptions=True))
+        # Close connections still open at the universe's end (deterministic
+        # order), so a wrapping SSL transport (asyncio's SSLProtocol) is told
+        # connection_lost and does not warn about an unclosed transport at GC.
+        network = loop._network
+        if network is not None and network._live_transports:
+            for transport in list(network._live_transports.values()):
+                transport._force_close(None)
+            loop._drain_ready()
         loop.run_until_complete(loop.shutdown_asyncgens())
         # Flush finalizers and weakref callbacks at a deterministic point,
         # then run anything they scheduled.

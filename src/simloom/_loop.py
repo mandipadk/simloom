@@ -832,7 +832,9 @@ class SimLoop(asyncio.AbstractEventLoop):
         self._escape_network("loop.sock_sendto")
 
     async def sock_connect(self, sock: Any, address: Any) -> None:
-        self._escape_network("loop.sock_connect")
+        if self._network is None:
+            self._escape_no_world("loop.sock_connect")
+        await self._network.sock_connect(sock, address)
 
     async def sock_accept(self, sock: Any) -> Any:
         self._escape_network("loop.sock_accept")

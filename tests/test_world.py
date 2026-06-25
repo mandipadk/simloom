@@ -88,17 +88,20 @@ class TestNetwork:
         with pytest.raises(ConnectionRefusedError):
             simloom.run(main, seed=0)
 
-    def test_tls_escapes(self) -> None:
+    def test_tls_is_simulated_not_escaped(self) -> None:
         import ssl as ssl_module
 
         async def main(world: World) -> None:
             ctx = ssl_module.create_default_context()
+            # No server here: refused by the simulated network, NOT an escape —
+            # TLS is simulated now (see test_tls.py for the happy path).
             await asyncio.get_running_loop().create_connection(
-                asyncio.Protocol, "tls.sim", 443, ssl=ctx
+                asyncio.Protocol, "10.0.0.7", 443, ssl=ctx
             )
 
-        with pytest.raises(EscapedSimulationError, match="ssl"):
-            simloom.run(main, seed=0)
+        result = simloom.run(main, seed=0, raise_on_error=False)
+        assert not isinstance(result.error, EscapedSimulationError)
+        assert isinstance(result.error, ConnectionRefusedError)
 
     def test_latency_shapes_virtual_time(self) -> None:
         async def main(world: World) -> float:
