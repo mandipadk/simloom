@@ -86,6 +86,4 @@ def observe(name: str, value: object) -> None:
     loop = _sim_loop()
     if loop is None or not loop._causal:
         return
-    loop._log.emit(
-        "observe", t=loop._now, name=name, value=repr(value), step=loop._current_step
-    )
+    loop._log.emit("observe", t=loop._now, name=name, value=repr(value), step=loop._current_step)
