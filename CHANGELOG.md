@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase L — stand-in services: sim-redis.** `world.run_service(SimRedis(),
+  host=, port=)` starts an in-sim RESP server an *unmodified* `redis.asyncio.Redis`
+  client speaks to — SET/GET/DEL/EXISTS/INCR(BY)/DECR(BY) and the
+  WATCH/MULTI/EXEC optimistic-locking transaction (a watched key changing aborts
+  the EXEC). It runs as an ordinary in-sim server, so `world.net` faults apply to
+  the wire: a planted connection reset surfaces to the client as a deterministic,
+  replayable `ConnectionError`. The roadmap's final phase — simloom now tests your
+  logic against a fault-injected dependency with nothing to stand up.
 - **Phase K — consistency checking (finds *wrong answers*, not just crashes).**
   An Elle-style list-append serializability checker: `world.history` records
   append/read transactions, `world.check_serializable()` / `assert_serializable()`

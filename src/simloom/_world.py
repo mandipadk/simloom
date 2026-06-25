@@ -268,6 +268,11 @@ class World:
     def hosts(self) -> list[Host]:
         return list(self._hosts.values())
 
+    async def run_service(self, service: Any, *, host: str, port: int) -> asyncio.AbstractServer:
+        """Start an in-sim stand-in service (e.g. ``SimRedis``) on ``host:port``.
+        Returns its server; every ``world.net`` fault applies to the wire."""
+        return await asyncio.start_server(service.handle, host, port)
+
     def check_serializable(self) -> SerializabilityResult:
         """Check ``world.history`` for serializability (Elle-style list-append).
         Returns a result; its ``cycle`` witnesses any violation."""

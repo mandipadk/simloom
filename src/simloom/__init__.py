@@ -32,6 +32,7 @@ from ._monitors import always, eventually, leads_to
 from ._net import SimDatagramTransport, SimNetwork, SimServer, SimTransport
 from ._run import RunResult, replay, run
 from ._sched import PCT, RandomWalk
+from ._services import SimRedis
 from ._shrink import ShrinkResult, shrink
 from ._soak import SoakReport, soak
 from ._systematic import SystematicResult, explore_systematic
@@ -69,6 +70,7 @@ __all__ = [
     "SimLivelockError",
     "SimLoop",
     "SimNetwork",
+    "SimRedis",
     "SimServer",
     "SimTransport",
     "SimloomError",

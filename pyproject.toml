@@ -46,6 +46,7 @@ dev = [
 spikes = [
     "aiohttp>=3.11",
     "httpx>=0.28",
+    "redis>=5.0",
 ]
 
 [project.scripts]
