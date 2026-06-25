@@ -67,6 +67,22 @@ class SimLivelockError(SimloomError):
     """
 
 
+class ConsistencyViolation(SimloomError):
+    """A recorded operation history is not serializable.
+
+    The store returned a *wrong answer*, not a crash: a read saw a stale or
+    impossible value. ``cycle`` is the dependency cycle that witnesses it, with
+    ``edge_types`` (ww/wr/rw) on each edge.
+    """
+
+    def __init__(
+        self, message: str, cycle: tuple[int, ...] = (), edge_types: tuple[str, ...] = ()
+    ) -> None:
+        self.cycle = cycle
+        self.edge_types = edge_types
+        super().__init__(message)
+
+
 class TapeMisalignmentError(SimloomError):
     """A replayed tape could not satisfy the draw the program asked for.
 

@@ -22,8 +22,9 @@ import weakref
 from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
+from ._consistency import History, SerializabilityResult, check_serializable
 from ._context import current_host
-from ._errors import InvariantViolation
+from ._errors import ConsistencyViolation, InvariantViolation
 from ._monitors import Predicate
 from ._net import SimNetwork
 from ._tape import Tape
@@ -250,6 +251,8 @@ class World:
         self.net = SimNetwork(loop)
         loop.attach_network(self.net)
         self._hosts: dict[str, Host] = {}
+        #: Recorded list-append operation history for consistency checking.
+        self.history = History()
 
     @property
     def time(self) -> float:
@@ -264,6 +267,19 @@ class World:
     @property
     def hosts(self) -> list[Host]:
         return list(self._hosts.values())
+
+    def check_serializable(self) -> SerializabilityResult:
+        """Check ``world.history`` for serializability (Elle-style list-append).
+        Returns a result; its ``cycle`` witnesses any violation."""
+        return check_serializable(self.history)
+
+    def assert_serializable(self) -> None:
+        """Raise ``ConsistencyViolation`` if ``world.history`` is not
+        serializable — so a wrong-answer bug is found, shrunk, and replayed like
+        any other failure."""
+        result = check_serializable(self.history)
+        if not result.ok:
+            raise ConsistencyViolation(result.message, result.cycle, result.edge_types)
 
     def connected_pair(
         self,

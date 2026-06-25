@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase K — consistency checking (finds *wrong answers*, not just crashes).**
+  An Elle-style list-append serializability checker: `world.history` records
+  append/read transactions, `world.check_serializable()` / `assert_serializable()`
+  recover each key's version order from the reads, build the ww/wr/rw dependency
+  graph, and report any cycle (the shortest, so a lost update is a minimal
+  two-step rw cycle) as a `ConsistencyViolation`. A store with a non-atomic
+  read-modify-write is caught under the schedules that lose an update; a locked
+  store always passes; the violation shrinks to the minimal cycle.
 - **Phase J (2,3/3) — the `simloom` trace/diff CLI + `observe`.** A causal log
   (`run(..., causal=True)`, `result.log.write_to(path)`) is consumed by:
   `simloom trace LOG --step N` (reconstruct state at any step with its causal

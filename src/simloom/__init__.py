@@ -11,7 +11,9 @@ faults) and the explorer arrive in later phases — see docs/plan.md.
 
 from ._boundary import BoundaryEntry, BoundaryStatus, boundary
 from ._buggify import draw, observe, reached, sometimes
+from ._consistency import History, SerializabilityResult, check_serializable
 from ._errors import (
+    ConsistencyViolation,
     EscapedSimulationError,
     InvariantViolation,
     SimDeadlockError,
@@ -44,18 +46,21 @@ __all__ = [
     "TAPE_FORMAT_VERSION",
     "BoundaryEntry",
     "BoundaryStatus",
+    "ConsistencyViolation",
     "CorpusEntry",
     "Draw",
     "EscapedSimulationError",
     "EventLog",
     "Exploration",
     "Failure",
+    "History",
     "Host",
     "InterleavingCorpus",
     "InvariantViolation",
     "MisalignmentPolicy",
     "RandomWalk",
     "RunResult",
+    "SerializabilityResult",
     "Settings",
     "ShrinkResult",
     "SimDatagramTransport",
@@ -78,6 +83,7 @@ __all__ = [
     "__version__",
     "always",
     "boundary",
+    "check_serializable",
     "draw",
     "eventually",
     "explore",
