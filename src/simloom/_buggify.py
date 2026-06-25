@@ -73,3 +73,19 @@ def reached(label: str) -> None:
     loop = _sim_loop()
     if loop is not None:
         loop.record_coverage(label)
+
+
+def observe(name: str, value: object) -> None:
+    """Record a named value at the current step, for the ``simloom trace`` tools
+    ("every step where ``name`` changed").
+
+    A no-op outside a simulation and outside causal mode, so it costs nothing in
+    normal runs and never perturbs the digest; under ``causal=True`` it emits an
+    ``observe`` event the trace CLI can query.
+    """
+    loop = _sim_loop()
+    if loop is None or not loop._causal:
+        return
+    loop._log.emit(
+        "observe", t=loop._now, name=name, value=repr(value), step=loop._current_step
+    )

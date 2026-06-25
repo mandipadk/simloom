@@ -10,7 +10,7 @@ faults) and the explorer arrive in later phases — see docs/plan.md.
 """
 
 from ._boundary import BoundaryEntry, BoundaryStatus, boundary
-from ._buggify import draw, reached, sometimes
+from ._buggify import draw, observe, reached, sometimes
 from ._errors import (
     EscapedSimulationError,
     InvariantViolation,
@@ -86,6 +86,7 @@ __all__ = [
     "interleaving_edges",
     "is_pinned",
     "leads_to",
+    "observe",
     "pin_hashseed",
     "reached",
     "replay",

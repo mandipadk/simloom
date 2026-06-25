@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Phase J (2,3/3) — the `simloom` trace/diff CLI + `observe`.** A causal log
+  (`run(..., causal=True)`, `result.log.write_to(path)`) is consumed by:
+  `simloom trace LOG --step N` (reconstruct state at any step with its causal
+  stack back to a root), `--grep REGEX` / `--changed NAME` (omniscient queries —
+  the latter returns exactly the steps where an `observe`-d value changed), and
+  `simloom diff A B` (first diverging event between two universes, with a cause
+  classification). `simloom.observe(name, value)` is a no-op outside causal mode
+  (zero digest impact).
 - **Phase J (1/3) — causal event log v2.** Opt-in `causal=True` annotates every
   `step` with *why it woke*: `woke_by` (the earlier step that scheduled the
   callback now running — the happens-before edge) and `via` (`timer` vs `soon`).

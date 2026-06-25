@@ -48,6 +48,9 @@ spikes = [
     "httpx>=0.28",
 ]
 
+[project.scripts]
+simloom = "simloom._cli:main"
+
 [project.entry-points.pytest11]
 simloom = "simloom._pytest_plugin"
 
